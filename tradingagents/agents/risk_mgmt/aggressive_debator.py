@@ -280,6 +280,13 @@ Output conversationally as if you are speaking without any special formatting.""
             "count": risk_debate_state["count"] + 1,
         }
 
+        # Append skill audit entry to risk debate state
+        audit_entry = skill_result["audit_entry"]
+        if audit_entry:
+            existing_trail = dict(risk_debate_state.get("skill_audit_trail", {}))
+            existing_trail.setdefault("aggressive", []).append(audit_entry)
+            new_risk_debate_state["skill_audit_trail"] = existing_trail
+
         # ─────────────────────────────────────────────────────────────────
         # 第八步：返回更新后的状态
         # ─────────────────────────────────────────────────────────────────

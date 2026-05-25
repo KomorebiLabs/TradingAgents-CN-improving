@@ -2,7 +2,7 @@
 import pytest
 import tempfile
 from pathlib import Path
-from tradingagents.harness.skills.loader import load_skill_registry, _load_skill_file
+from tradingagents.harness.skills.loader import load_skill_registry, _load_skill_from_file
 
 
 def test_load_skill_registry_from_temp_dir():
@@ -36,7 +36,7 @@ def test_load_skill_without_frontmatter():
     with tempfile.TemporaryDirectory() as tmp:
         p = Path(tmp) / "test.md"
         p.write_text("# No frontmatter skill\nContent here.", encoding="utf-8")
-        skill = _load_skill_file(p, "news")
+        skill = _load_skill_from_file(p, "news")
         assert skill.name == "test"
         assert skill.category == "news"
         assert skill.content == "# No frontmatter skill\nContent here."
@@ -62,7 +62,7 @@ applies_to_analyst: [fundamentals]
 Content here.""",
             encoding="utf-8",
         )
-        skill = _load_skill_file(p, "fundamentals")
+        skill = _load_skill_from_file(p, "fundamentals")
         assert skill.name == "overridden_name"
         assert skill.description == "Overridden description"
         assert skill.applies_to_analyst == ["fundamentals"]

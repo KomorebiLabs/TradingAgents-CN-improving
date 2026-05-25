@@ -340,6 +340,13 @@ def create_research_manager(llm, memory, skill_injector=None):
             "count": investment_debate_state["count"],
         }
 
+        # Append skill audit entry to investment debate state
+        audit_entry = skill_result["audit_entry"]
+        if audit_entry:
+            existing_trail = dict(investment_debate_state.get("skill_audit_trail", {}))
+            existing_trail.setdefault("research_manager", []).append(audit_entry)
+            new_investment_debate_state["skill_audit_trail"] = existing_trail
+
         # ─────────────────────────────────────────────────────────────────
         # 第八步：返回更新后的状态
         # ─────────────────────────────────────────────────────────────────

@@ -1,7 +1,9 @@
 """In-memory skill registry with analyst-type filtering."""
-from typing import Dict, List, Optional
+from __future__ import annotations
 
-from .types import SkillDefinition
+from typing import Any, Dict, List, Optional
+
+from .types import DecisionType, SkillDefinition
 
 
 class SkillRegistry:

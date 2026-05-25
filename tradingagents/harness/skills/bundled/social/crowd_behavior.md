@@ -2,6 +2,7 @@
 name: crowd-behavior
 description: Use when analyzing retail vs institutional investor behavior, herding effects, disposition effects, or behavioral biases specific to the A-share market.
 applies_to_analyst: [social_sentiment]
+decision_types: [defensive, sentiment]
 version: "1.0"
 ---
 

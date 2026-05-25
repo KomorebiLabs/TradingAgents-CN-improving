@@ -317,6 +317,13 @@ def create_trader(llm, memory, skill_injector=None):
         )
         update["orchestration"] = orchestration
         update["messages"] = [result]
+
+        # Append skill audit entry to update dict
+        audit_entry = skill_result["audit_entry"]
+        if audit_entry:
+            update.setdefault("skill_audit_trail", {})
+            update["skill_audit_trail"].setdefault("trader", []).append(audit_entry)
+
         return update
 
     # 返回绑定了 name="Trader" 的节点函数

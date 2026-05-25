@@ -327,6 +327,13 @@ def create_portfolio_manager(llm, memory, skill_injector=None):
             "count": risk_debate_state["count"],
         }
 
+        # Append skill audit entry to risk debate state
+        audit_entry = skill_result["audit_entry"]
+        if audit_entry:
+            existing_trail = dict(risk_debate_state.get("skill_audit_trail", {}))
+            existing_trail.setdefault("portfolio_manager", []).append(audit_entry)
+            new_risk_debate_state["skill_audit_trail"] = existing_trail
+
         # ─────────────────────────────────────────────────────────────────
         # 第九步：返回更新后的状态
         # ─────────────────────────────────────────────────────────────────
