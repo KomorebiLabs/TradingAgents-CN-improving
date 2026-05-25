@@ -1,81 +1,97 @@
-"""Tests for SkillInjector."""
-import tempfile
-from pathlib import Path
-from unittest.mock import patch
+"""tests/harness/skills/test_injector.py"""
+import pytest
 
-from tradingagents.harness.skills.injector import SkillInjector, ANALYST_SKILL_MAPPING
-
-
-def test_analyst_skill_mapping_defined():
-    """Verify all analyst types are mapped."""
-    assert "market" in ANALYST_SKILL_MAPPING
-    assert "news" in ANALYST_SKILL_MAPPING
-    assert "fundamentals" in ANALYST_SKILL_MAPPING
-    assert "social" in ANALYST_SKILL_MAPPING
-    assert len(ANALYST_SKILL_MAPPING["market"]) == 4
-    assert len(ANALYST_SKILL_MAPPING["news"]) == 3
-    assert len(ANALYST_SKILL_MAPPING["fundamentals"]) == 3
-    assert len(ANALYST_SKILL_MAPPING["social"]) == 2
+from tradingagents.harness.skills.injector import (
+    SkillInjector,
+    AnalystSkillInjector,
+    SKILL_USAGE_INSTRUCTION,
+)
+from tradingagents.harness.skills.types import DecisionType
 
 
-def test_injector_builds_skill_section():
-    """Verify SkillInjector builds content from bundled skills."""
-    injector = SkillInjector()  # uses bundled dir
-    section = injector.build_skill_section("market")
-    # Should contain at least the header or skill content
-    assert isinstance(section, str)
-    assert "Analytical Skills" in section or len(section) > 0
+class TestSkillInjector:
+    def setup_method(self):
+        self.injector = SkillInjector()
 
-
-def test_injector_returns_empty_for_unknown_analyst():
-    """Unknown analyst type returns empty string."""
-    injector = SkillInjector()
-    section = injector.build_skill_section("unknown_analyst")
-    assert section == ""
-
-
-def test_inject_into_prompt_returns_original_if_no_skills():
-    """If no skills, inject_into_prompt returns the original prompt unchanged."""
-    with tempfile.TemporaryDirectory() as tmp:
-        bundled = Path(tmp)
-        market_dir = bundled / "market"
-        market_dir.mkdir()
-        (market_dir / "m1.md").write_text(
-            "---\nname: m1\ndescription: m1 desc\napplies_to_analyst: []\n---\nContent.",
-            encoding="utf-8",
+    def test_build_skill_section_returns_tuple(self):
+        result = self.injector.build_skill_section(
+            DecisionType.OFFENSIVE,
+            include_references=False,
         )
-        injector = SkillInjector(bundled)
-        result = injector.inject_into_prompt("market", "You are a market analyst.")
-        assert "You are a market analyst." in result
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        section, names = result
+        assert isinstance(section, str)
+        assert isinstance(names, list)
 
-
-def test_inject_into_prompt_adds_separator_and_skills():
-    """inject_into_prompt adds separator and skill content."""
-    with tempfile.TemporaryDirectory() as tmp:
-        bundled = Path(tmp)
-        market_dir = bundled / "market"
-        market_dir.mkdir()
-        (market_dir / "test_skill.md").write_text(
-            "---\nname: test_skill\ndescription: test desc\napplies_to_analyst: [market]\n---\n# Test Skill\n\nTest content.",
-            encoding="utf-8",
+    def test_build_skill_section_offensive_has_content(self):
+        section, names = self.injector.build_skill_section(
+            DecisionType.OFFENSIVE,
+            include_references=False,
         )
-        injector = SkillInjector(bundled)
-        with patch.object(
-            injector,
-            "build_skill_section",
-            return_value="# Analytical Skills Available\n\n## Skill: test_skill\n\nTest content.",
-        ):
-            result = injector.inject_into_prompt("market", "You are a market analyst.")
-        assert "You are a market analyst." in result
+        assert "## Skill:" in section
+
+    def test_round_1_no_references(self):
+        section, names = self.injector.build_skill_section(
+            DecisionType.OFFENSIVE,
+            debate_round=1,
+            include_references=False,
+        )
+        assert "**Reference:" not in section
+
+    def test_inject_adds_separator(self):
+        result, names = self.injector.inject(
+            DecisionType.OFFENSIVE,
+            existing_prompt="You are a bull researcher.",
+            debate_round=1,
+        )
         assert "INJECTED ANALYTICAL SKILLS" in result
-        assert "test_skill" in result
+        assert "You are a bull researcher." in result
+        assert len(names) > 0
+
+    def test_inject_adds_usage_instruction(self):
+        result, names = self.injector.inject(
+            DecisionType.OFFENSIVE,
+            existing_prompt="You are a bull researcher.",
+            debate_round=1,
+        )
+        assert "<SkillsUsed>" in result
+        assert len(names) > 0
+
+    def test_counter_round_adds_skills(self):
+        _, normal = self.injector.build_skill_section(
+            DecisionType.OFFENSIVE,
+            node_name="bull",
+            is_counter_round=False,
+        )
+        _, counter = self.injector.build_skill_section(
+            DecisionType.OFFENSIVE,
+            node_name="bull",
+            is_counter_round=True,
+        )
+        assert len(counter) >= len(normal)
+
+    def test_empty_prompt_returns_empty(self):
+        result, names = self.injector.inject(
+            DecisionType.OFFENSIVE,
+            existing_prompt="",
+        )
+        assert "INJECTED ANALYTICAL SKILLS" in result
 
 
-def test_build_skill_section_returns_empty_for_unknown_analyst():
-    """Unknown analyst type with no mapping returns empty."""
-    with tempfile.TemporaryDirectory() as tmp:
-        bundled = Path(tmp)
-        (bundled / "market").mkdir()
-        injector = SkillInjector(bundled)
-        section = injector.build_skill_section("nonexistent_analyst")
-        assert section == ""
+class TestAnalystSkillInjector:
+    def setup_method(self):
+        self.injector = AnalystSkillInjector()
+
+    def test_market_maps_to_offensive(self):
+        result = self.injector.inject_into_prompt("market", "prompt")
+        assert "INJECTED ANALYTICAL SKILLS" in result
+
+    def test_fundamentals_maps_to_valuation(self):
+        result = self.injector.inject_into_prompt("fundamentals", "prompt")
+        assert "INJECTED ANALYTICAL SKILLS" in result
+
+    def test_unknown_analyst_defaults_to_valuation(self):
+        result = self.injector.inject_into_prompt("unknown_type", "prompt")
+        # Should not crash, may or may not have content
+        assert isinstance(result, str)

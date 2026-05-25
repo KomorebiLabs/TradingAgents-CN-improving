@@ -2,6 +2,7 @@
 name: breakout-recognition
 description: Use when validating price breakouts, distinguishing true vs false breakouts, or analyzing limit-up (涨停板) patterns in A-share markets.
 applies_to_analyst: [market_technical]
+decision_types: [offensive]
 version: "1.0"
 ---
 
@@ -59,15 +60,4 @@ A股独特的涨跌停板制度使突破分析具有特殊性。
 
 **ATR 测量法**：使用 1.5~2 倍 ATR 作为初始止损，2 倍 ATR 作为止盈参考。
 
-## 五、综合确认清单
-
-在确认任何突破前，必须逐项核对以下条件：
-
-1. 突破日量能是否超过均量 1.5 倍？
-2. 是否连续 2 日收盘站稳突破位？
-3. 突破幅度是否超过 3%？
-4. 突破时基本面/消息面是否有支撑？
-5. 大盘是否处于可操作环境（避开系统性下跌市）？
-6. 个股是否有庄家对倒或尾盘操纵痕迹？
-
-全部满足时突破信号可靠性显著提升；仅满足 2~3 项时需降低仓位或等待回踩确认。
+> **Reference**: See `references/breakout_checklist.md` for the comprehensive breakout validation checklist.

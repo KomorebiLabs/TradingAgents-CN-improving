@@ -2,6 +2,7 @@
 name: fraud-detection
 description: Use when conducting fundamental due diligence, auditing financial statements, or screening for accounting red flags in A-share listed companies.
 applies_to_analyst: [fundamentals_quant, fundamentals_qualitative]
+decision_types: [defensive, valuation]
 version: "1.0"
 ---
 
@@ -72,16 +73,10 @@ A 股市场历史上多次出现重大财务造假事件（如康美药业、康
 **Step 5：宏观与微观印证**
 将公司经营数据与行业宏观数据（如行业协会统计、国家统计局数据、海关数据）对比验证。例如某公司声称是行业龙头，但行业协会统计的产能数据与公司披露不符，需要警惕。
 
-## 四、辅助信息源
-
-- 国家企业信用信息公示系统（查工商信息、法律诉讼）
-- 证监会/交易所处罚公告（查历史监管记录）
-- 中国裁判文书网（查公司及实控人诉讼）
-- 启信宝/天眼查（查股权穿透、关联关系）
-- 问询函回复（交易所对财报的事后审核问询，公司回复中往往隐藏重要信息）
-
-## 五、特别警示
+## 四、特别警示
 
 **财务洗澡（Big Bath）**：部分公司在业绩下滑年份一次性大幅计提减值损失（存货减值、商誉减值、应收账款坏账），目的是"洗大澡"——把历史问题集中处理，让未来轻装上阵。识别方法：某年出现大额亏损（远超历史均值），但次年业绩奇迹般恢复。这是会计处理的艺术，而非经营改善。
 
 **IPO 和定增前的业绩粉饰**：公司为完成 IPO 或定增，在融资前可能进行收入和利润的临时粉饰。融资完成后的第一份年报往往是"卸妆"时刻，需特别警惕。
+
+> **Reference**: See `references/red_flags_checklist.md` for detailed red flags checklist and auxiliary information sources.

@@ -2,6 +2,7 @@
 name: trend-patterns
 description: Use when identifying chart patterns, candlestick formations, or trend reversal signals in A-share stock analysis.
 applies_to_analyst: [market_technical]
+decision_types: [offensive, catalyst]
 version: "1.0"
 ---
 
@@ -45,9 +46,11 @@ version: "1.0"
 
 **V 形反转** 是最剧烈也最难捕捉的反转形态，价格急速下跌后快速反弹，A 股政策底到市场底的转换中常见 V 形反转，如 2019 年初和 2022 年底的反弹均属此类。
 
-## 三、A 股特殊形态考量
+## 四、A 股特殊形态考量
 
 1. **涨跌停板限制**：A股 10%（ST 股 5%，注册制 20%）的涨跌停制度使某些经典形态变形。涨停板"开板"（涨停打开）是重要分析节点，开板后能否回封反映市场做多意愿的强度。
 2. **尾盘拉抬**：主力常在收盘前 30 分钟内集中拉升或打压股价，人为"画"出特定 K 线形态，日内形态的可靠性低于全日走势分析。
 3. **缺口理论**：A 股高开缺口在开盘集合竞价后能否回补是关键判断。向上跳空缺口若 3 日内未回补是强势信号，向下跳空缺口若伴随放量下跌则是加速赶底的信号。
 4. **题材炒作形态**：短线题材股经常走出极端的"一字板"连板和"天地板"（从涨停到跌停）形态，常规趋势分析在此类股票上失效，需结合资金流向和龙虎榜数据综合判断。
+
+> **Reference**: See `references/trend_reversal_signals.md` for detailed reversal signal identification checklist.

@@ -1,25 +1,87 @@
-"""Skill definition types and models."""
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+"""tradingagents/harness/skills/types.py"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import List, Optional
 
 
-class SkillDefinition(BaseModel):
-    """A single skill definition with metadata and content."""
+class DecisionType(str, Enum):
+    OFFENSIVE = "offensive"
+    DEFENSIVE = "defensive"
+    VALUATION = "valuation"
+    CATALYST = "catalyst"
+    SENTIMENT = "sentiment"
 
-    name: str = Field(description="Unique skill name (e.g. fraud_detection)")
-    description: str = Field(description="Short description for display and routing")
-    category: Optional[str] = Field(default=None, description="Skill category (e.g. market, fundamentals)")
-    applies_to_analyst: List[str] = Field(
-        default_factory=list,
-        description="Which analyst types this skill applies to (e.g. [fundamentals, news])",
-    )
-    version: str = Field(default="1.0", description="Skill version")
-    content: str = Field(default="", description="Full Markdown skill content")
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Extra metadata parsed from YAML frontmatter",
-    )
+
+class SkillLayer(str, Enum):
+    CORE = "core"
+    REFERENCE = "ref"
+
+
+@dataclass
+class SkillReference:
+    """A reference document under the references/ subdirectory of a skill directory."""
+    filename: str
+    content: str
 
     def to_prompt_section(self) -> str:
-        """Render this skill as a Markdown section for Agent prompt injection."""
-        return f"## Skill: {self.name}\n\n{self.content}"
+        return f"**Reference: {self.filename}**\n{self.content}"
+
+
+@dataclass
+class SkillDefinition:
+    """A single skill definition with metadata and layered content.
+
+    Supports:
+    - content: SKILL.md body (CORE layer)
+    - references: List[SkillReference] from references/ subdir (REFERENCE layer)
+    """
+    name: str
+    description: str
+    decision_types: List[DecisionType] = field(default_factory=list)
+    version: str = "1.0"
+    category: Optional[str] = None
+    applies_to_analyst: List[str] = field(default_factory=list)
+    content: str = ""
+    references: List[SkillReference] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+
+    def to_prompt_section(self, include_references: bool = False) -> str:
+        parts = [f"## Skill: {self.name}\n\n{self.content}"]
+        if include_references and self.references:
+            parts.append("\n**References:**")
+            for ref in self.references:
+                parts.append(f"\n{ref.to_prompt_section()}")
+        return "\n".join(parts)
+
+    def to_core_section(self) -> str:
+        return self.to_prompt_section(include_references=False)
+
+    def to_full_section(self) -> str:
+        return self.to_prompt_section(include_references=True)
+
+
+@dataclass
+class SkillUsageRecord:
+    """Record of a skill actually used by an LLM in a response."""
+    skill_name: str
+    decision_type: str = ""
+    layer: str = "core"
+    usage_type: str = "declared"
+    justification: str = ""
+
+
+@dataclass
+class SkillAuditEntry:
+    """Complete audit record for a single Agent node invocation."""
+    node_name: str
+    decision_type: str
+    debate_round: int
+    is_counter_round: bool
+    is_adjudication: bool
+    injected_skills: List[str] = field(default_factory=list)
+    declared_skills: List[SkillUsageRecord] = field(default_factory=list)
+    unmatched_declared: List[str] = field(default_factory=list)
+    skill_match_rate: float = 0.0
+    timestamp: str = ""
