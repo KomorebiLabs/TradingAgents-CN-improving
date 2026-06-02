@@ -156,7 +156,7 @@ def create_news_analyst(llm):
             )
 
         skill_injector = SkillInjector()
-        skill_section = skill_injector.build_skill_section("news")
+        skill_section, _ = skill_injector.build_skill_section("news")
 
         system_message = system_message + screener_context_str + "\n" + skill_section
 

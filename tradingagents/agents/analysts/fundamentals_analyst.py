@@ -254,7 +254,7 @@ def create_fundamentals_analyst(llm):
             + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
             + (f" {semantic_instruction}" if semantic_instruction else "")
             # 语言指令（支持多语言输出）
-            + get_language_instruction(),
+            + get_language_instruction()
         )
 
         # H3: Inject Skill and Screener Context
@@ -269,7 +269,7 @@ def create_fundamentals_analyst(llm):
             )
 
         skill_injector = SkillInjector()
-        skill_section = skill_injector.build_skill_section("fundamentals")
+        skill_section, _ = skill_injector.build_skill_section("fundamentals")
 
         system_message = system_message + screener_context_str + "\n" + skill_section
 

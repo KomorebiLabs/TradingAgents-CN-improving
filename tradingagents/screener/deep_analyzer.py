@@ -150,7 +150,16 @@ class DeepAnalyzer:
 
     def analyze_top_candidates(self, candidates: List[SignalCard], trade_date: str) -> List[DeepAnalysisResult]:
         limit = min(len(candidates), self.deep_config.max_stocks)
-        return [self.analyze(card, trade_date) for card in candidates[:limit]]
+        if limit == 0:
+            print("[SCREENER] Stage DeepAnalysis: no candidates to analyze")
+            return []
+        print(f"[SCREENER] Stage DeepAnalysis: analyzing top {limit} candidates (max_stocks={self.deep_config.max_stocks})...")
+        results = []
+        for i, card in enumerate(candidates[:limit], 1):
+            print(f"[SCREENER] Stage DeepAnalysis: analyzing {i}/{limit} - {card.ticker} (score={card.screening_score:.1f})...")
+            results.append(self.analyze(card, trade_date))
+        print(f"[SCREENER] Stage DeepAnalysis: done | {len(results)} candidates analyzed")
+        return results
 
     def _dry_run(
         self,

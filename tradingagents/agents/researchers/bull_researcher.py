@@ -310,6 +310,9 @@ Use this information to deliver a compelling bull argument, refute the bear's co
 
             # 辩论轮次 +1
             "count": investment_debate_state["count"] + 1,
+
+            # 追踪最后发言者（避免 current_response 内容误判导致无限循环）
+            "latest_speaker": "Bull Researcher",
         }
 
         # Write skill audit entry to AgentState (must happen after dict init)

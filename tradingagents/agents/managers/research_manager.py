@@ -338,6 +338,9 @@ def create_research_manager(llm, memory, skill_injector=None):
 
             # 辩论轮次（不增加，由辩论层控制）
             "count": investment_debate_state["count"],
+
+            # 追踪最后发言者（裁判发言后辩论结束）
+            "latest_speaker": "Judge",
         }
 
         # Append skill audit entry to investment debate state

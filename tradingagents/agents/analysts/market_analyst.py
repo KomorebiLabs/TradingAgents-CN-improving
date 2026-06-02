@@ -224,7 +224,7 @@ def create_market_analyst(llm):
             )
 
         skill_injector = SkillInjector()
-        skill_section = skill_injector.build_skill_section("market")
+        skill_section, _ = skill_injector.build_skill_section("market")
 
         system_message = system_message + screener_context_str + "\n" + skill_section
 

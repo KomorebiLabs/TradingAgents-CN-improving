@@ -12,6 +12,14 @@ from .mapping import DecisionSkillMapper, DECISION_SKILL_MAPPING
 # Backward-compatible re-export: old code imports this from injector.py
 ANALYST_SKILL_MAPPING = DECISION_SKILL_MAPPING
 
+# Analyst-type string → DecisionType mapping (for backward compat with analyst callers)
+ANALYST_TYPE_MAPPING: Dict[str, "DecisionType"] = {
+    "market": DecisionType.OFFENSIVE,
+    "news": DecisionType.CATALYST,
+    "fundamentals": DecisionType.VALUATION,
+    "social": DecisionType.SENTIMENT,
+}
+
 
 # Skill 使用声明指令（注入到 prompt 末尾）
 SKILL_USAGE_INSTRUCTION = """
@@ -58,7 +66,7 @@ class SkillInjector:
 
     def build_skill_section(
         self,
-        decision_type: DecisionType,
+        decision_type: DecisionType | str,
         node_name: str | None = None,
         debate_round: int = 1,
         is_counter_round: bool = False,
@@ -66,9 +74,24 @@ class SkillInjector:
     ) -> Tuple[str, List[str]]:
         """Build skill Markdown section for a given decision type.
 
+        Args:
+            decision_type: Either a DecisionType enum value, or one of the analyst-type
+                strings ("market", "news", "fundamentals", "social") which are
+                automatically mapped to the appropriate DecisionType.
         Returns:
             Tuple of (section_text, injected_skill_names)
         """
+        # Resolve analyst-type string to DecisionType if needed.
+        # DecisionType(str, Enum) is a str subclass, so check for DecisionType first.
+        if not isinstance(decision_type, DecisionType):
+            if isinstance(decision_type, str):
+                mapped = ANALYST_TYPE_MAPPING.get(decision_type)
+                if mapped is None:
+                    return "", []
+                decision_type = mapped
+            else:
+                return "", []
+
         registry = self._ensure_registry()
         skill_names = self._mapper.get_skill_names(
             decision_type=decision_type,

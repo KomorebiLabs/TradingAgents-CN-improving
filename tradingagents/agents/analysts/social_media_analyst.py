@@ -181,7 +181,7 @@ def create_social_media_analyst(llm):
             )
 
         skill_injector = SkillInjector()
-        skill_section = skill_injector.build_skill_section("social")
+        skill_section, _ = skill_injector.build_skill_section("social")
 
         system_message = system_message + screener_context_str + "\n" + skill_section
 

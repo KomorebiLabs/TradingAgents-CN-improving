@@ -446,6 +446,9 @@ def create_bear_researcher(llm, memory, skill_injector=None):
 
             # 辩论轮次 +1（供条件逻辑判断是否结束）
             "count": investment_debate_state["count"] + 1,
+
+            # 追踪最后发言者（避免 current_response 内容误判导致无限循环）
+            "latest_speaker": "Bear Researcher",
         }
 
         # Write deferred skill audit entry

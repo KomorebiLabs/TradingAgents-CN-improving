@@ -5,6 +5,10 @@ from pathlib import Path
 import json
 from datetime import date
 from typing import Dict, Any, Tuple, List, Optional
+from tradingagents.agents.utils.memory_manager import (
+    save_conclusion_summary,
+    load_historical_conclusion,
+)
 
 
 class GraphExecutionError(Exception):
@@ -115,6 +119,12 @@ class TradingAgentsGraph:
         self.portfolio_manager_memory = FinancialSituationMemory("portfolio_manager_memory", self.config)
         self.route_memory = StructuredMemory("route_memory", self.config)
 
+        # P4 Memory: Load historical conclusion for company_of_interest
+        self._historical_context: Optional[Dict[str, Any]] = None
+        company = self.config.get("company_of_interest", "")
+        if company:
+            self._historical_context = load_historical_conclusion(company)
+
         # Skill injector for decision-node skill injection
         self._skill_injector = SkillInjector()
 
@@ -203,6 +213,9 @@ class TradingAgentsGraph:
             init_agent_state = self.propagator.create_initial_state(
                 company_name, trade_date, self.graph_setup.selected_analysts
             )
+            # P4 Memory: Inject historical context into initial state
+            if self._historical_context is not None:
+                init_agent_state["historical_context"] = self._historical_context
             args = self.propagator.get_graph_args()
 
             if self.debug:
@@ -393,6 +406,7 @@ class TradingAgentsGraph:
                 "judge_decision": final_state["investment_debate_state"][
                     "judge_decision"
                 ],
+                "latest_speaker": final_state["investment_debate_state"].get("latest_speaker", ""),
             },
             "trader_investment_decision": final_state["trader_investment_plan"],
             "risk_debate_state": {
@@ -434,6 +448,16 @@ class TradingAgentsGraph:
             self.curr_state, returns_losses, self.portfolio_manager_memory,
             route_memory=self.route_memory
         )
+        # P4 Memory: Generate and persist conclusion summary
+        try:
+            summary = self.reflector.generate_conclusion_summary(self.curr_state)
+            ticker = self.curr_state.get("company_of_interest", "")
+            trade_date = str(self.curr_state.get("trade_date", ""))
+            if ticker and trade_date:
+                save_conclusion_summary(ticker, trade_date, summary)
+        except Exception:
+            # Memory persistence must never crash the reflection flow
+            pass
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""

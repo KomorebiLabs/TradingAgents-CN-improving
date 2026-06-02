@@ -60,7 +60,21 @@ from typing import Any, Dict, Optional
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from tradingagents.agents import *
+from tradingagents.agents import (
+    create_msg_delete,
+    create_market_analyst,
+    create_social_media_analyst,
+    create_news_analyst,
+    create_fundamentals_analyst,
+    create_bull_researcher,
+    create_bear_researcher,
+    create_research_manager,
+    create_trader,
+    create_aggressive_debater,
+    create_conservative_debator,
+    create_neutral_debator,
+    create_portfolio_manager,
+)
 from tradingagents.agents.utils.agent_states import AgentState
 from tradingagents.agents.utils.state_helpers import (
     build_orchestration_event,
@@ -442,7 +456,7 @@ class GraphSetup:
             self.quick_thinking_llm,
             skill_injector=self._skill_injector,
         )
-        neutral_analyst = create_neutral_debater(
+        neutral_analyst = create_neutral_debator(
             self.quick_thinking_llm,
             skill_injector=self._skill_injector,
         )

@@ -254,6 +254,22 @@ def create_trader(llm, memory, skill_injector=None):
             ),
         }
 
+        # ── P4 Memory: Inject historical context ───────────────────────────────
+        historical_context = state.get("historical_context")
+        if historical_context:
+            dims = historical_context.get("dimensions", {})
+            dim_str = "; ".join(f"{k}={v}" for k, v in dims.items()) if dims else "N/A"
+            historical_context_str = (
+                f"\n\n[Historical Context — {historical_context.get('trade_date', '')} "
+                f"({historical_context.get('confidence', '')}置信度)]\n"
+                f"上一轮分析结论: {historical_context.get('summary', 'N/A')}\n"
+                f"策略维度: {dim_str}\n"
+                f"最终决策: {historical_context.get('final_decision', 'N/A')}\n"
+                f"关键理由: {'; '.join(historical_context.get('key_reasons', [])[:3])}\n"
+                f"风险提示: {'; '.join(historical_context.get('risks', [])[:2])}\n"
+            )
+            context["content"] += historical_context_str
+
         # system 消息：定义交易员的角色和输出要求
         messages = [
             {
