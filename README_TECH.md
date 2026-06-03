@@ -993,9 +993,55 @@ ScreenerDataAccess 对所有 HTTP 请求注入浏览器标准 Header（User-Agen
 
 ## 8. 开发阶段路线图
 
+> **重要说明：** 原始 TradingAgents（上游 TauricResearch/TradingAgents）的 Analyzer 采用简单的线性多智能体流程——4位分析师顺序执行 → 多空辩论 → 风控辩论 → 决策。各阶段之间的信息传递是简单的文本拼接，缺乏上下文压缩、语义路由和可观测性。本项目在初始提交（Phase 1）中即对 Analyzer 架构做了根本性重构，并新增了 Screener 选股引擎、Harness 可观测性、A 股专属数据接口等模块，后续 commits 在此基础上持续迭代。
+
+### 8.1 Phase 1 vs 上游原始版本的对比
+
+#### 原始 Analyzer 架构的缺陷
+
+| 缺陷 | 原始实现 | 问题表现 |
+|------|----------|----------|
+| **辩论机械** | Bull/Bear 轮流发言，count-based 退出 | 缺乏真实推理，Agent 只是轮流输出文本 |
+| **无上下文压缩** | 各阶段全量文本直接传递 | 上下文快速膨胀，token 消耗极高 |
+| **无路由决策** | 所有标的走相同流程 | 简单标的和复杂标的没有区分 |
+| **无记忆系统** | 仅有一个 `TradingMemoryLog` | 无法积累跨会话经验 |
+| **无工具抽象** | 工具直接硬编码在 Agent 内 | 无法根据标的类型动态选择工具 |
+| **无 A 股数据** | 依赖 yfinance（美股为主） | 无法获取 A 股概念板块，资金流、龙虎榜等数据 |
+
+#### Phase 1 的核心重构（对比上游）
+
+| 维度 | 上游原始版本 | Phase 1 重构版本 | 改进效果 |
+|------|------------|----------------|----------|
+| **辩论机制** | 49 行 `Reflector`，仅 1 个方法，输出 2-4 句纯文本 | 1117 行 `Reflector`，15+ 方法，支持逐 Agent 反思 + 路由洞察 + 混合总结 | 辩论质量质的提升 |
+| **图结构** | 136 行 `setup.py`，14 个节点，线性流程 | 753 行 `setup.py`，25+ 节点，4 个路由拦截器 + 4 个压缩总结节点 | 智能路由 + 上下文压缩 |
+| **上下文压缩** | 无 | 每个阶段边界有 LLM 压缩（Token 阈值 18K） | Token 消耗大幅降低 |
+| **状态管理** | `AgentState` 平铺字段 | 引入 `structured` 嵌套块（decision_blocks/debate_blocks/analyst_reports） | 状态清晰、可追溯 |
+| **记忆系统** | 1 个 `TradingMemoryLog`（JSON 简单存储） | 6 个 `FinancialSituationMemory`（各角色独立）+ 1 个 `StructuredMemory`（路由模式） | 跨会话智能积累 |
+| **工具系统** | 硬编码工具绑定 | `get_tools_for_analyst()` + `instrument_profile` 抽象，按标的类型动态选择工具 | 灵活性大幅提升 |
+| **A 股数据** | 无 | `dataflows/akshare_interface.py` + `cn_*_tools.py` | A 股市场全面支持 |
+| **图行数** | `reflection.py` 49 行，`setup.py` 136 行 | `reflection.py` 1117 行，`setup.py` 753 行 | 增 1685 行核心逻辑 |
+
+#### Phase 1 新增的 4 类智能节点
+
+```
+阶段边界拦截器（Orchestration Router）：
+  分析师团队 → "Route Research Phase" → 多空研究员
+  多空辩论 → "Route Trader Phase" → 交易员
+  交易计划 → "Route Risk Phase" → 风控分析师
+  风控辩论 → "Route Portfolio Phase" → 投资组合经理
+
+阶段压缩总结器（Phase Handoff）：
+  "Summarize Analyst Phase"   → 聚4位分析师报告为1份压缩备忘录
+  "Summarize Research Phase"  → 聚多空辩论结论为1份备忘录
+  "Summarize Trader Phase"    → 聚交易计划为1份备忘录
+  "Summarize Risk Phase"      → 聚风控辩论为1份备忘录
+```
+
+### 8.2 全阶段路线图
+
 | Phase | 名称 | 状态 | 核心交付 |
 |-------|------|------|----------|
-| **Phase 1** | Screener 筛选器 | ✅ 完成 | 多策略选股引擎（技术面/资金流/动量/突破/价值/政策） |
+| **Phase 1** | A股 Analyzer 重构 + Screener 选股引擎 | ✅ 完成 | LangGraph 架构重构（路由/压缩/记忆）、6 大选股策略、A 股数据接口 |
 | **Phase 2** | Bug 修复 + CLI 美化 | ✅ 完成 | 12 个 Bug 修复，Bloomberg Terminal 风格 Typer CLI |
 | **Phase 3** | Harness 可观测性 + Skills | ✅ 完成 | 25+ 内置 Skill，决策类型路由，成本追踪，Token 统计，记忆系统 |
 | **Phase 4** | 概念地位评分重构 | ✅ 完成 | board_rank → concept_weight，基于指数成分股替代日间涨跌排名 |
@@ -1003,6 +1049,20 @@ ScreenerDataAccess 对所有 HTTP 请求注入浏览器标准 Header（User-Agen
 | **Phase 6** | HTML 报告导出 | 🔨 规划中 | 将 Markdown 报告渲染为交互式 HTML |
 | **Phase 7** | 回测集成 | 🔨 规划中 | 与 Backtrader 集成，验证历史信号效果 |
 
+### 8.3 初始提交包含的子系统（上古 vs 新增）
+
+上游原始版本仅有 64 个 Python 文件，本项目初始提交包含 130 个 Python 文件。新增子系统如下：
+
+| 子系统 | 文件数 | 核心功能 |
+|--------|--------|----------|
+| **Screener 选股引擎** | 25+ | 6 大策略、信号合并、冲突解决、Deep Analyzer |
+| **Harness 可观测性** | 20+ | Skill 注入、成本追踪、Token 计数、上下文注入 |
+| **A 股数据接口** | 15+ | AkShare A 股数据、政策宏观事件、龙虎榜，资金流 |
+| **RAG 检索系统** | 8+ | 向量存储、检索器、重排模型、CN 新闻增强 |
+| **UI 终端界面** | 6+ | Bloomberg 风格 Live Dashboard、主题配色，品牌吉祥物 |
+| **CLI 命令系统** | 15+ | 统一入口、8 步问卷、报告查看器 |
+| **A 股专属工具** | 6+ | 宏观数据、板块新闻、事件日历、限售股等 |
+
 ---
 
-*本文档由 TradingAgents Team 维护，最后更新于 2026-05。*
+*本文档由 TradingAgents Team 维护，最后更新于 2026-06。*
