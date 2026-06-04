@@ -10,7 +10,8 @@ from typing import Any, Dict, Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table, MINIMAL
+from rich.table import Table
+from rich import box
 from rich.prompt import Confirm, Prompt
 from rich.rule import Rule
 from rich.markdown import Markdown
@@ -40,7 +41,7 @@ def print_analyzer_summary(result: Dict[str, Any]) -> None:
     console.print()
 
     # Summary Panel
-    summary_table = Table(box=MINIMAL, show_header=False, padding=(0, 1))
+    summary_table = Table(box=box.MINIMAL, show_header=False, padding=(0, 1))
     summary_table.add_column("Key", style="cyan", width=20)
     summary_table.add_column("Value", style="white", width=50)
 
@@ -175,7 +176,7 @@ def print_screener_summary(result: Dict[str, Any]) -> None:
     candidates = result.get("candidates", [])
     
     if candidates:
-        table = Table(title="[bold cyan]Top Candidates[/bold cyan]", box=MINIMAL, show_header=True)
+        table = Table(title="[bold cyan]Top Candidates[/bold cyan]", box=box.MINIMAL, show_header=True)
         table.add_column("#", style="cyan", width=4, justify="center")
         table.add_column("Ticker", style="bold white", width=15)
         table.add_column("Name", style="white", width=22)
@@ -201,7 +202,7 @@ def print_screener_summary(result: Dict[str, Any]) -> None:
         ))
 
     # Metadata
-    meta = Table(box=MINIMAL, show_header=False)
+    meta = Table(box=box.MINIMAL, show_header=False)
     meta.add_column("Key", style="cyan", width=20)
     meta.add_column("Value", style="white")
     meta.add_row("Date", result.get("date", "N/A"))
