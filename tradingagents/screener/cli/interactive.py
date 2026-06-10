@@ -110,7 +110,7 @@ def _prompt_mode() -> str:
         default="FULL",
     ).strip().upper()
 
-    console.print(f"[green]✓ Mode: {mode}[/green]")
+    console.print(f"[green][OK] Mode: {mode}[/green]")
     return mode
 
 
@@ -128,10 +128,10 @@ def _prompt_date() -> str:
         ).strip()
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
-            console.print(f"[green]✓ Date: {date_str}[/green]")
+            console.print(f"[green][OK] Date: {date_str}[/green]")
             return date_str
         except ValueError:
-            console.print("[red]✗ Invalid date format. Please use YYYY-MM-DD.[/red]")
+            console.print("[red][X] Invalid date format. Please use YYYY-MM-DD.[/red]")
 
 
 def _prompt_focus() -> tuple[Optional[str], Optional[str]]:
@@ -179,7 +179,7 @@ def _prompt_focus() -> tuple[Optional[str], Optional[str]]:
     ).strip()
 
     focus = f"{focus_type}={focus_value}"
-    console.print(f"[green]✓ Focus: {focus}[/green]")
+    console.print(f"[green][OK] Focus: {focus}[/green]")
     return focus_type, focus_value
 
 
@@ -201,14 +201,14 @@ def _prompt_tickers_or_universe() -> tuple[Optional[str], Optional[str]]:
             "[cyan]Tickers (comma-separated)[/cyan]",
             default="600519,000001,300750",
         ).strip()
-        console.print(f"[green]✓ Tickers: {tickers[:50]}{'...' if len(tickers) > 50 else ''}[/green]")
+        console.print(f"[green][OK] Tickers: {tickers[:50]}{'...' if len(tickers) > 50 else ''}[/green]")
         return tickers, None
 
     universe = Prompt.ask(
         "[cyan]Universe file path[/cyan]",
         default="stocks.txt",
     ).strip()
-    console.print(f"[green]✓ Universe file: {universe}[/green]")
+    console.print(f"[green][OK] Universe file: {universe}[/green]")
     return None, universe
 
 
@@ -285,9 +285,9 @@ def _print_run_summary(config: dict) -> None:
     # Add risk warnings
     risks = []
     if config.get("mode") == "FULL":
-        risks.append("[yellow]⚠ FULL mode may take longer to run[/yellow]")
+        risks.append("[yellow][!] FULL mode may take longer to run[/yellow]")
     if config.get("mode") == "CUSTOM" and not config.get("tickers"):
-        risks.append("[yellow]⚠ CUSTOM mode depends on input file quality[/yellow]")
+        risks.append("[yellow][!] CUSTOM mode depends on input file quality[/yellow]")
 
     if risks:
         summary_items.append("")

@@ -9,6 +9,11 @@ import pandas as pd
 from tradingagents.screener.models import SignalCard, SignalEvidence
 from tradingagents.screener.strategies.technical import placeholder_name, score_to_exchange
 from tradingagents.screener.universe import format_ticker
+from tradingagents.ui.screener_console import (
+    console,
+    print_progress_bar,
+    clear_progress_line,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -26,7 +31,7 @@ class SmartMoneyStrategy:
         self.config = config or {}
 
     def run(self, universe: List[str], trade_date: str) -> StrategyOutcome:
-        print(f"[SCREENER] Stage B SmartMoney: starting (universe={len(universe)} stocks)...")
+        console.print(f"[cyan]>> SmartMoneyStrategy[/cyan]  [dim]{len(universe)} stocks...", end="\r")
 
         capability = self.data_access.validate_interface_assumptions(trade_date=trade_date)
         smart_config = self.config.get("strategies", {}).get("smart_money", {})
@@ -127,7 +132,7 @@ class SmartMoneyStrategy:
         log_interval = max(1, total // 10) if total > 0 else 1
         _logger.info(f"[SmartMoney] Starting analysis for {total} stocks...")
 
-        print(f"[SCREENER] Stage B SmartMoney: scoring all {total} stocks...")
+        console.print(f"[cyan]  SmartMoney scoring[/cyan]  [dim]{total} stocks...[/dim]", end="\r")
 
         for idx, raw_code in enumerate(universe):
             ticker = format_ticker(raw_code)
@@ -363,15 +368,15 @@ class SmartMoneyStrategy:
             # Print progress every 50 stocks
             if (idx + 1) % 50 == 0 or (idx + 1) == total:
                 pct = (idx + 1) * 100 // total
-                print(f"[SCREENER] Stage B SmartMoney: processed {idx + 1}/{total} ({pct}%) | {len(scored_cards)} cards generated")
+                print_progress_bar("SmartMoney scoring", idx + 1, total)
 
         # Print progress every 50 stocks
         if total > 0:
-            print(f"[SCREENER] Stage B SmartMoney: processed {total}/{total} (100%) | {len(scored_cards)} cards generated")
+            clear_progress_line()
         else:
-            print("[SCREENER] Stage B SmartMoney: 0 stocks to process")
+            console.print("[yellow]  SmartMoney: 0 stocks to process[/yellow]")
 
-        print(f"[SCREENER] Stage B SmartMoney: scoring done, sorting {len(scored_cards)} cards...")
+        console.print(f"[cyan]  SmartMoney:[/cyan] [dim]sorting {len(scored_cards)} cards...[/dim]", end="\r")
 
         scored_cards.sort(key=lambda card: card.screening_score, reverse=True)
         top_n = self.config.get("strategies", {}).get("smart_money", {}).get("top_output", 200)
@@ -386,7 +391,7 @@ class SmartMoneyStrategy:
             if cards and strategy_capability.get("status_hint") == "ready" and effective_hist_available
             else "degraded"
         )
-        print(f"[SCREENER] Stage B SmartMoney: done | {len(cards)} cards (status={status})")
+        console.print(f"[green][OK] SmartMoneyStrategy done[/green]  [cyan]{len(cards)}[/cyan] cards  [dim]status={status}[/dim]")
         return StrategyOutcome(cards=cards, status=status, warnings=warnings)
 
     def _load_hist_metrics(self, ticker: str, trade_date: str, capability: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:

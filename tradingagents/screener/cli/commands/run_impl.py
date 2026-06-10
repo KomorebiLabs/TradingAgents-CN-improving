@@ -493,7 +493,7 @@ def run(
     # P6-6: Enhanced completion page
     console.print()
     console.print(Panel.fit(
-        f"[bold green]✓ Screener Completed[/bold green]",
+        f"[bold green][OK] Screener Completed[/bold green]",
         border_style="green",
         padding=(0, 1),
     ))

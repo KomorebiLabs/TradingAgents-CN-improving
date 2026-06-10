@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Tuple
 
 from tradingagents.screener.config import SCREENER_CONFIG, SCREENER_THRESHOLDS
 from tradingagents.screener.models import SignalCard
+from tradingagents.ui.screener_console import console
 
 
 POLICY_SELECTION_TAGS = {
@@ -884,7 +885,7 @@ def merge_signal_cards(
     if not cards:
         return [], []
 
-    print(f"[SCREENER] Stage Merger: starting | mode={mode} | {len(cards)} cards to process")
+    console.print(f"[cyan]>> Merger[/cyan]  [dim]mode={mode}  {len(cards)} cards...[/dim]", end="\r")
 
     config = config or SCREENER_CONFIG
     thresholds = config.get("thresholds", SCREENER_THRESHOLDS) if isinstance(config, dict) else SCREENER_THRESHOLDS
@@ -899,7 +900,7 @@ def merge_signal_cards(
     for card in cards:
         grouped[card.ticker].append(card)
 
-    print(f"[SCREENER] Stage Merger: merging and sorting cards...")
+    console.print(f"[cyan]  Merging and sorting...[/cyan]", end="\r")
     merged_cards = [_merge_card_group(group, conflict_priority, merger_thresholds) for group in grouped.values()]
     merged_cards.sort(
         key=lambda card: (
@@ -1041,5 +1042,5 @@ def merge_signal_cards(
             conflict_priority=conflict_priority,
         )
 
-    print(f"[SCREENER] Stage Merger: done | {len(limited)} candidates retained | {len(dropped)} dropped (max_output={max_output}, mode={mode})")
+    console.print(f"[green][OK] Merger done[/green]  [cyan]{len(limited)}[/cyan] retained  [red]{len(dropped)}[/red] dropped  [dim]mode={mode}[/dim]")
     return limited, dropped

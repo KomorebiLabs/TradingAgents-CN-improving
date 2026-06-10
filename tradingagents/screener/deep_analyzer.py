@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 
 from tradingagents.screener.config import DeepAnalyzerConfig, build_graph_config
 from tradingagents.screener.models import DeepAnalysisResult, SignalCard
+from tradingagents.ui.screener_console import console
 from tradingagents.agents.utils.agent_utils import (
     build_semantic_execution_profile,
     derive_semantic_flow_controls,
@@ -151,14 +152,19 @@ class DeepAnalyzer:
     def analyze_top_candidates(self, candidates: List[SignalCard], trade_date: str) -> List[DeepAnalysisResult]:
         limit = min(len(candidates), self.deep_config.max_stocks)
         if limit == 0:
-            print("[SCREENER] Stage DeepAnalysis: no candidates to analyze")
+            console.print("[yellow]  DeepAnalysis: no candidates to analyze[/yellow]")
             return []
-        print(f"[SCREENER] Stage DeepAnalysis: analyzing top {limit} candidates (max_stocks={self.deep_config.max_stocks})...")
         results = []
         for i, card in enumerate(candidates[:limit], 1):
-            print(f"[SCREENER] Stage DeepAnalysis: analyzing {i}/{limit} - {card.ticker} (score={card.screening_score:.1f})...")
+            console.print(
+                f"[cyan]  Analyzing[/cyan] [white]{i}/{limit}[/white]  "
+                f"[bold white]{card.ticker}[/bold white]  "
+                f"[dim]score={card.screening_score:.1f}[/dim]",
+                end="\r",
+            )
             results.append(self.analyze(card, trade_date))
-        print(f"[SCREENER] Stage DeepAnalysis: done | {len(results)} candidates analyzed")
+        console.print()
+        console.print(f"[green][OK] DeepAnalysis done[/green]  [cyan]{len(results)}/{limit}[/cyan] candidates analyzed")
         return results
 
     def _dry_run(

@@ -8,6 +8,7 @@ import json
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.screener.config import SCREENER_UNIVERSE
+from tradingagents.ui.screener_console import console
 
 if TYPE_CHECKING:
     from tradingagents.screener.data_access import ScreenerDataAccess
@@ -116,7 +117,7 @@ def _fetch_constituents_for_indexes(
         成分股代码列表（6位数字格式，如 ["600519", "000858", ...]）
         如果全部失败，返回空列表
     """
-    print(f"[SCREENER] Stage Universe: fetching index constituents for {len(index_codes)} indexes...")
+    console.print(f"[cyan]>> Fetching {len(index_codes)} index constituents...[/cyan]", end="\r")
 
     all_constituents: Set[str] = set()
     _da = data_access
@@ -129,7 +130,6 @@ def _fetch_constituents_for_indexes(
         return _da
 
     for i, idx_code in enumerate(index_codes):
-        print(f"[SCREENER] Stage Universe: fetching {idx_code} ({i + 1}/{len(index_codes)})...")
         df = None
         try:
             da = _get_da()
@@ -159,7 +159,8 @@ def _fetch_constituents_for_indexes(
             elif code.isdigit() and len(code) < 6:
                 all_constituents.add(code.zfill(6))
 
-    print(f"[SCREENER] Stage Universe: fetched {len(all_constituents)} unique constituents from {len(index_codes)} indexes")
+    console.print()
+    console.print(f"[green][OK] Index constituents fetched[/green]  [cyan]{len(all_constituents)}[/cyan] unique from [cyan]{len(index_codes)}[/cyan] indexes")
     return sorted(all_constituents)
 
 
@@ -189,7 +190,7 @@ def build_screening_universe(
     cache_dir = get_screener_cache_dir(config)
 
     if profile == "CUSTOM" and custom_tickers:
-        print(f"[SCREENER] Stage Universe: CUSTOM mode - loading {len(custom_tickers)} custom tickers")
+        console.print(f"[cyan]>> CUSTOM mode[/cyan]  [dim]loading {len(custom_tickers)} custom tickers[/dim]")
         normalized = _normalize_tickers(custom_tickers)
         formatted = [format_ticker(code) for code in normalized]
         result = UniverseBuildResult(
@@ -215,7 +216,7 @@ def build_screening_universe(
     if profile == "FOCUSED":
         focus_type = universe_config.get("focus_type")
         focus_value = universe_config.get("focus_value")
-        print(f"[SCREENER] Stage Universe: FOCUSED mode - focus_type={focus_type}, focus_value={focus_value}")
+        console.print(f"[cyan]>> FOCUSED mode[/cyan]  [dim]focus=[/dim][white]{focus_type}[/white][dim]=[/dim][white]{focus_value}[/white]")
         return _build_focused_universe(
             mode=mode,
             focus_type=focus_type,
@@ -230,15 +231,14 @@ def build_screening_universe(
     cache_file = cache_dir / f"universe_{cache_key}.json"
     cached = load_universe_cache(cache_file)
     if cached is not None:
-        print(f"[SCREENER] Stage Universe: loaded from cache - {len(cached.tickers)} tickers (profile={profile})")
+        console.print(f"[green][OK] Universe ready (cached)[/green]  [cyan]{len(cached.tickers)}[/cyan] tickers  [dim]profile={profile}[/dim]")
         return cached
 
-    print(f"[SCREENER] Stage Universe: building from index constituents (profile={profile})...")
+    console.print(f"[cyan]>> Building universe from index constituents...[/cyan]  [dim]profile={profile}[/dim]", end="\r")
 
     index_codes = list(universe_def.get("index_codes", []))
     constituents = _fetch_constituents_for_indexes(index_codes, data_access)
 
-    print(f"[SCREENER] Stage Universe: fetched {len(constituents)} constituents, building result...")
 
     if not constituents:
         raise RuntimeError(
@@ -272,7 +272,7 @@ def build_screening_universe(
         },
     )
     save_universe_cache(cache_file, result)
-    print(f"[SCREENER] Stage Universe: done - {len(result.tickers)} stocks | cached to {cache_file.name}")
+    console.print(f"[green][OK] Universe ready[/green]  [cyan]{len(result.tickers)}[/cyan] stocks  [dim]cached to {cache_file.name}[/dim]")
     return result
 
 

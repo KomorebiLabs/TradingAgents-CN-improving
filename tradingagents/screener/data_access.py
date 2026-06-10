@@ -13,6 +13,7 @@ from contextlib import nullcontext
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.screener.http_spoof import patch_requests_browser_headers
 from tradingagents.screener.throttling import AntiBanConfig, ThrottledRequester
+from tradingagents.ui.screener_console import console, print_probe_table
 
 
 def _safe_float(val) -> float | None:
@@ -1254,7 +1255,13 @@ class ScreenerDataAccess:
 
     def _run_live_probes(self) -> Dict[str, Any]:
         """执行全量 live probe, 测试所有接口可用性."""
-        print("[SCREENER] Stage DataProbe: running live API probes (this may take ~10-20s)...")
+        console.print()
+        from rich.panel import Panel
+        console.print(Panel.fit(
+            "[bold cyan]>> DATA PROBE[/bold cyan]  [dim]testing API availability (~10-20s)...[/dim]",
+            border_style="cyan",
+            padding=(0, 1),
+        ))
 
         summary = self.get_interface_capability_summary()
         vendors = self._vendors_config()
@@ -1267,7 +1274,7 @@ class ScreenerDataAccess:
         warnings: List[str] = []
 
         # ---- Spot Snapshot probes ----
-        print("[SCREENER] Stage DataProbe: probing spot_snapshot...", end=" ", flush=True)
+        console.print("[dim]Probing spot_snapshot...[/dim]", end="\r")
         spot_probes = [
             ("spot_tencent_direct", lambda: self._fetch_spot_tencent_direct()),
             ("spot_tencent_akshare", lambda: self._fetch_spot_tencent()),
@@ -1278,11 +1285,12 @@ class ScreenerDataAccess:
         summary["spot_snapshot_verified"] = any(
             r.ok for r in spot_result.values()
         )
-        spot_ok = [k for k, v in spot_result.items() if v.ok]
-        print(f"{len(spot_ok)}/{len(spot_probes)} passed -> [{', '.join(spot_ok) or 'none'}]")
+        console.print()
+        spot_rows = [(name, spot_result[name].ok, spot_result[name].detail or "") for name, _ in spot_probes]
+        print_probe_table("spot_snapshot", spot_rows)
 
         # ---- Historical bars probes ----
-        print("[SCREENER] Stage DataProbe: probing hist_fetch...", end=" ", flush=True)
+        console.print("[dim]Probing hist_fetch...[/dim]", end="\r")
         hist_probes = [
             ("hist_tencent_direct", lambda: self._fetch_hist_tencent_direct(
                 sample_symbol, sample_start, sample_end)),
@@ -1296,11 +1304,12 @@ class ScreenerDataAccess:
         hist_result = self._probe_multi("hist_fetch", hist_probes)
         probe_results.update(hist_result)
         summary["hist_fetch_verified"] = any(r.ok for r in hist_result.values())
-        hist_ok = [k for k, v in hist_result.items() if v.ok]
-        print(f"{len(hist_ok)}/{len(hist_probes)} passed -> [{', '.join(hist_ok) or 'none'}]")
+        console.print()
+        hist_rows = [(name, hist_result[name].ok, hist_result[name].detail or "") for name, _ in hist_probes]
+        print_probe_table("hist_fetch", hist_rows)
 
         # ---- Concept board probes ----
-        print("[SCREENER] Stage DataProbe: probing concept_list...", end=" ", flush=True)
+        console.print("[dim]Probing concept_list...[/dim]", end="\r")
         concept_probes = [
             ("concept_ths", lambda: self._fetch_concept_ths()),
             ("concept_sina", lambda: self._fetch_concept_sina()),
@@ -1310,11 +1319,12 @@ class ScreenerDataAccess:
         summary["concept_list_verified"] = any(
             r.ok for r in concept_result.values()
         )
-        concept_ok = [k for k, v in concept_result.items() if v.ok]
-        print(f"{len(concept_ok)}/{len(concept_probes)} passed -> [{', '.join(concept_ok) or 'none'}]")
+        console.print()
+        concept_rows = [(name, concept_result[name].ok, concept_result[name].detail or "") for name, _ in concept_probes]
+        print_probe_table("concept_list", concept_rows)
 
         # ---- Industry board probes ----
-        print("[SCREENER] Stage DataProbe: probing industry_list...", end=" ", flush=True)
+        console.print("[dim]Probing industry_list...[/dim]", end="\r")
         industry_probes = [
             ("industry_ths", lambda: self._fetch_industry_ths()),
         ]
@@ -1323,23 +1333,25 @@ class ScreenerDataAccess:
         summary["industry_list_verified"] = any(
             r.ok for r in industry_result.values()
         )
-        ind_ok = [k for k, v in industry_result.items() if v.ok]
-        print(f"{len(ind_ok)}/{len(industry_probes)} passed -> [{', '.join(ind_ok) or 'none'}]")
+        console.print()
+        industry_rows = [(name, industry_result[name].ok, industry_result[name].detail or "") for name, _ in industry_probes]
+        print_probe_table("industry_list", industry_rows)
 
         # ---- Fund flow probes ----
-        print("[SCREENER] Stage DataProbe: probing fund_flow...", end=" ", flush=True)
+        console.print("[dim]Probing fund_flow...[/dim]", end="\r")
         ff_probes = [
             ("fund_flow_ths", lambda: self._fetch_fund_flow_ths(symbol="即时")),
-            ("fund_flow_em", lambda: self._fetch_fund_flow_em()),  # H4: em replaces baostock
+            ("fund_flow_em", lambda: self._fetch_fund_flow_em()),
         ]
         ff_result = self._probe_multi("fund_flow", ff_probes)
         probe_results.update(ff_result)
         summary["fund_flow_verified"] = any(r.ok for r in ff_result.values())
-        ff_ok = [k for k, v in ff_result.items() if v.ok]
-        print(f"{len(ff_ok)}/{len(ff_probes)} passed -> [{', '.join(ff_ok) or 'none'}]")
+        console.print()
+        ff_rows = [(name, ff_result[name].ok, ff_result[name].detail or "") for name, _ in ff_probes]
+        print_probe_table("fund_flow", ff_rows)
 
         # ---- Index spot probes ----
-        print("[SCREENER] Stage DataProbe: probing index_spot...", end=" ", flush=True)
+        console.print("[dim]Probing index_spot...[/dim]", end="\r")
         index_probes = [
             ("index_tencent_direct", lambda: self._fetch_index_tencent_direct()),
             ("index_sina", lambda: self._fetch_index_sina()),
@@ -1348,11 +1360,12 @@ class ScreenerDataAccess:
         index_result = self._probe_multi("index_spot", index_probes)
         probe_results.update(index_result)
         summary["index_spot_verified"] = any(r.ok for r in index_result.values())
-        idx_ok = [k for k, v in index_result.items() if v.ok]
-        print(f"{len(idx_ok)}/{len(index_probes)} passed -> [{', '.join(idx_ok) or 'none'}]")
+        console.print()
+        index_rows = [(name, index_result[name].ok, index_result[name].detail or "") for name, _ in index_probes]
+        print_probe_table("index_spot", index_rows)
 
         # ---- Tick data probes ----
-        print("[SCREENER] Stage DataProbe: probing tick_data...", end=" ", flush=True)
+        console.print("[dim]Probing tick_data...[/dim]", end="\r")
         tick_probes = [
             ("tick_tencent", lambda: self._fetch_tick_tencent("sz000001")),
             ("tick_sina", lambda: self._fetch_tick_sina("sz000001")),
@@ -1360,11 +1373,12 @@ class ScreenerDataAccess:
         tick_result = self._probe_multi("tick_data", tick_probes)
         probe_results.update(tick_result)
         summary["tick_data_verified"] = any(r.ok for r in tick_result.values())
-        tick_ok = [k for k, v in tick_result.items() if v.ok]
-        print(f"{len(tick_ok)}/{len(tick_probes)} passed -> [{', '.join(tick_ok) or 'none'}]")
+        console.print()
+        tick_rows = [(name, tick_result[name].ok, tick_result[name].detail or "") for name, _ in tick_probes]
+        print_probe_table("tick_data", tick_rows)
 
         # ---- yfinance fallback ----
-        print("[SCREENER] Stage DataProbe: probing yfinance hist...", end=" ", flush=True)
+        console.print("[dim]Probing yfinance hist...[/dim]", end="\r")
         if vendors.get("enable_yfinance_backup", True):
             yf_result = self._probe_single(
                 "hist_yfinance",
@@ -1375,14 +1389,19 @@ class ScreenerDataAccess:
             probe_results["hist_yfinance"] = yf_result
             if yf_result.ok:
                 warnings.append("[INFO] yfinance historical fallback probe succeeded")
-            print("passed" if yf_result.ok else "failed")
+                console.print(f"[green][OK] yfinance[/green]")
+            else:
+                console.print(f"[red][X] yfinance[/red]")
         else:
-            print("skipped")
+            console.print("[yellow][-] yfinance skipped[/yellow]")
 
         # ---- 构建返回摘要 ----
-        print("[SCREENER] Stage DataProbe: done")
         failed_count = sum(1 for r in probe_results.values() if not r.ok)
-        print(f"[SCREENER] Stage DataProbe: {len(probe_results) - failed_count}/{len(probe_results)} probes passed, {failed_count} failed")
+        console.print()
+        passed = len(probe_results) - failed_count
+        total = len(probe_results)
+        color = "green" if failed_count == 0 else "yellow" if failed_count < total / 2 else "red"
+        console.print(f"[green][OK] DataProbe done[/green]  [cyan]{passed}/{total}[/cyan] passed  [red]{failed_count}[/red] failed")
         summary["probe_results"] = {
             k: {
                 "name": v.name,

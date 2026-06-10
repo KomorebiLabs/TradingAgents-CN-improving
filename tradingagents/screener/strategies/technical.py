@@ -9,6 +9,11 @@ import pandas as pd
 
 from tradingagents.screener.models import SignalCard, SignalEvidence
 from tradingagents.screener.universe import format_ticker
+from tradingagents.ui.screener_console import (
+    console,
+    print_progress_bar,
+    clear_progress_line,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -72,7 +77,7 @@ class TechnicalStrategy:
         self.config = config or {}
 
     def run(self, universe: List[str], trade_date: str) -> StrategyOutcome:
-        print(f"[SCREENER] Stage B Technical: starting (universe={len(universe)} stocks)...")
+        console.print(f"[cyan]>> TechnicalStrategy[/cyan]  [dim]{len(universe)} stocks...", end="\r")
 
         capability = self.data_access.validate_interface_assumptions(trade_date=trade_date)
         strategy_config = self.config.get("strategies", {}).get("technical", {})
@@ -126,7 +131,7 @@ class TechnicalStrategy:
             hist_verified=hist_verified,
         )
 
-        print(f"[SCREENER] Stage B Technical: loading histories ({len(universe)} stocks)...")
+        console.print(f"[cyan]  Loading histories[/cyan]  [dim]{len(universe)} stocks...[/dim]", end="\r")
 
         for i, raw_code in enumerate(universe):
             ticker = format_ticker(raw_code)
@@ -258,9 +263,10 @@ class TechnicalStrategy:
             # Print progress every 50 stocks
             if (i + 1) % 50 == 0 or (i + 1) == len(universe):
                 pct = (i + 1) * 100 // len(universe)
-                print(f"[SCREENER] Stage B Technical: processed {i + 1}/{len(universe)} ({pct}%) | {len(cards)} cards scored so far")
+                print_progress_bar("Technical scoring", i + 1, len(universe))
 
-        print(f"[SCREENER] Stage B Technical: scoring done, sorting top {len(cards)} cards...")
+        clear_progress_line()
+        console.print(f"[cyan]  Technical:[/cyan] [dim]sorting {len(cards)} cards...[/dim]", end="\r")
 
         cards.sort(key=lambda card: card.screening_score, reverse=True)
         top_n = self.config.get("strategies", {}).get("technical", {}).get("top_output", 20)
@@ -271,7 +277,7 @@ class TechnicalStrategy:
 
         warnings = list(capability.get("warnings", []))
         status = "ready" if cards and fund_flow_verified and effective_hist_available else "degraded"
-        print(f"[SCREENER] Stage B Technical: done | {len(cards)} cards (status={status})")
+        console.print(f"[green][OK] TechnicalStrategy done[/green]  [cyan]{len(cards)}[/cyan] cards  [dim]status={status}[/dim]")
         return StrategyOutcome(cards=cards, status=status, warnings=warnings)
 
     @staticmethod
@@ -657,11 +663,12 @@ class TechnicalStrategy:
             # Print progress every 50 stocks
             if (i + 1) % print_interval == 0 or (i + 1) == total:
                 pct = (i + 1) * 100 // total
-                print(f"[SCREENER] Stage B Technical: fetching history {i + 1}/{total} ({pct}%) | {len(histories)} valid loaded")
+                print_progress_bar("Fetching histories", i + 1, total)
 
-        print(f"[SCREENER] Stage B Technical: history fetch done | {len(histories)}/{total} stocks with valid data")
+        clear_progress_line()
+        console.print(f"[green][OK] Histories fetched[/green]  [cyan]{len(histories)}/{total}[/cyan] with valid data")
         if len(histories) == 0:
-            print("[SCREENER] Stage B Technical: WARNING - no valid history data loaded, scoring will be degraded")
+            console.print("[yellow][!] WARNING: no valid history data loaded, scoring will be degraded[/yellow]")
         return histories, vendors
 
     @staticmethod

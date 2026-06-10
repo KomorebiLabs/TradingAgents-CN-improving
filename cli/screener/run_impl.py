@@ -203,7 +203,9 @@ def _resolve_output_dir(output_dir: Optional[str]) -> Path:
     if output_dir:
         p = Path(output_dir).expanduser().resolve()
     else:
-        p = Path.home() / ".tradingagents" / "logs" / "screener"
+        # Default: project_root/reports/Screener (D盘项目目录)
+        project_root = Path(__file__).resolve().parents[2]
+        p = project_root / "reports" / "Screener"
     p.mkdir(parents=True, exist_ok=True)
     return p
 

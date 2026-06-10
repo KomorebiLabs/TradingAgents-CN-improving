@@ -9,6 +9,11 @@ import pandas as pd
 from tradingagents.screener.models import SignalCard, SignalEvidence
 from tradingagents.screener.strategies.technical import placeholder_name, score_to_exchange
 from tradingagents.screener.universe import format_ticker
+from tradingagents.ui.screener_console import (
+    console,
+    print_progress_bar,
+    clear_progress_line,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -35,7 +40,7 @@ class PolicyStrategy:
         self.config = config or {}
 
     def run(self, universe: List[str], trade_date: str) -> StrategyOutcome:
-        print(f"[SCREENER] Stage B Policy: starting (universe={len(universe)} stocks)...")
+        console.print(f"[cyan]>> PolicyStrategy[/cyan]  [dim]{len(universe)} stocks...", end="\r")
 
         capability = self.data_access.validate_interface_assumptions(trade_date=trade_date)
         policy_config = self.config.get("strategies", {}).get("policy", {})
@@ -87,7 +92,7 @@ class PolicyStrategy:
                     if code_col:
                         codes = df[code_col].astype(str).str.zfill(6).tolist()
                         setattr(self, _cache_attr, set(codes))
-                        print(f"[SCREENER] Stage B Policy: loaded {len(codes)} stocks for {_name_zh}")
+                        console.print(f"[dim]  Loaded {len(codes)} stocks for {_name_zh}...[/dim]", end="\r")
             except Exception:
                 pass
 
@@ -107,7 +112,7 @@ class PolicyStrategy:
         degraded_reason = self._build_degradation_reason(concept_verified, bool(selected_concepts), keyword_mode)
         # H6 OPTIMIZATION: single batch fetch of all concept constituents upfront (O(m) API calls)
         # Instead of per-stock per-concept fetching. Universe loop below only does O(1) dict lookups.
-        print(f"[SCREENER] Stage B Policy: loading concept constituents for {len(selected_concepts)} concepts...")
+        console.print(f"[cyan]  Loading concept constituents[/cyan]  [dim]{len(selected_concepts)} concepts...[/dim]", end="\r")
         concept_constituents = self._load_concept_constituents(selected_concepts, max_stocks_per_concept)
         universe_codes = {code.zfill(6) for code in universe}
         # H6 OPTIMIZATION: pre-compute universe hits once (O(n+m) set operations)
@@ -124,7 +129,7 @@ class PolicyStrategy:
         log_interval = max(1, total // 10) if total > 0 else 1
         _logger.info(f"[Policy] Starting analysis for {total} stocks...")
 
-        print(f"[SCREENER] Stage B Policy: scoring all {total} stocks...")
+        console.print(f"[cyan]  Policy scoring[/cyan]  [dim]{total} stocks...[/dim]", end="\r")
 
         for idx, raw_code in enumerate(universe):
             ticker = format_ticker(raw_code)
@@ -331,12 +336,12 @@ class PolicyStrategy:
                 )
             )
 
-            # Progress log at ~10% intervals
+            # Progress log at ~50-stock intervals
             if (idx + 1) % 50 == 0 or (idx + 1) == total:
-                pct = (idx + 1) * 100 // total
-                print(f"[SCREENER] Stage B Policy: processed {idx + 1}/{total} ({pct}%) | {len(cards)} cards scored so far")
+                print_progress_bar("Policy scoring", idx + 1, total)
 
-        print(f"[SCREENER] Stage B Policy: scoring done, sorting {len(cards)} cards...")
+        clear_progress_line()
+        console.print(f"[cyan]  Policy:[/cyan] [dim]sorting {len(cards)} cards...[/dim]", end="\r")
 
         _logger.info(f"[Policy] Analysis done: {len(cards)} cards from {total} stocks")
         cards.sort(key=lambda card: card.screening_score, reverse=True)
@@ -348,7 +353,7 @@ class PolicyStrategy:
             if cards and strategy_capability.get("status_hint") == "ready" and concept_verified and bool(selected_concepts)
             else "degraded"
         )
-        print(f"[SCREENER] Stage B Policy: done | {len(cards)} cards (status={status})")
+        console.print(f"[green][OK] PolicyStrategy done[/green]  [cyan]{len(cards)}[/cyan] cards  [dim]status={status}[/dim]")
         return StrategyOutcome(cards=cards, status=status, warnings=warnings)
 
     @staticmethod

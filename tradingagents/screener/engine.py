@@ -7,6 +7,14 @@ import pandas as pd
 
 from tradingagents.screener.config import SCREENER_CONFIG, SCREENER_THRESHOLDS
 from tradingagents.screener.merger import merge_signal_cards
+from tradingagents.ui.screener_console import (
+    console,
+    print_header_banner,
+    print_stage_header,
+    print_completion_banner,
+    print_progress_bar,
+    clear_progress_line,
+)
 
 
 def _extract_strategy_thresholds(cards: List) -> Dict[str, Any]:
@@ -99,6 +107,8 @@ class ScreenerEngine:
         import logging
         _logger = logging.getLogger(__name__)
 
+        from tradingagents.ui.screener_console import print_progress_bar, clear_progress_line, console
+
         passed: List[str] = []
         total = len(tickers)
         lookback_days = self.config.get("strategies", {}).get("technical", {}).get("lookback_days", 100)
@@ -165,10 +175,10 @@ class ScreenerEngine:
 
             # Print user-facing progress every 50 stocks
             if (i + 1) % print_interval == 0 or (i + 1) == total:
-                pct = (i + 1) * 100 // total
-                print(f"[SCREENER] Stage A: processed {i + 1}/{total} ({pct}%) | passed so far: {len(passed)}")
+                print_progress_bar("Stage A", i + 1, total)
 
-        print(f"[SCREENER] Stage A: done | {len(passed)}/{total} passed | dropped: {total - len(passed)}")
+        clear_progress_line()
+        console.print(f"[green][OK] Stage A done[/green]  [cyan]{len(passed)}/{total}[/cyan] passed  [red]{total - len(passed)}[/red] dropped")
 
         return passed, drop_reasons
 
@@ -182,11 +192,7 @@ class ScreenerEngine:
         import logging
         _logger = logging.getLogger(__name__)
 
-        print()
-        print("=" * 70)
-        print(f"[SCREENER] Starting run | mode={mode} | date={trade_date} | deep_analysis={enable_deep_analysis}")
-        print("=" * 70)
-        print()
+        print_header_banner(mode, trade_date, enable_deep_analysis)
 
         now = datetime.now()
         trade_date = trade_date or now.strftime("%Y-%m-%d")
@@ -210,12 +216,10 @@ class ScreenerEngine:
                 "Hint: Try --mode CUSTOM with --tickers <list> to skip index constituent fetching."
             )
 
-        print()
-        print(f"[SCREENER] Stage Universe: done | {len(universe.tickers)} stocks in universe (mode={mode})")
+        console.print(f"[green][OK] Universe ready[/green]  [dim]{len(universe.tickers)} stocks  mode=[cyan]{mode}[/cyan]")
 
         # P5-3: Stage A - Light pre-screening
-        print()
-        print(f"[SCREENER] Stage A: light pre-screening of {len(universe.tickers)} stocks...")
+        print_stage_header("Stage A", f"light pre-screening of {len(universe.tickers)} stocks")
         stagea_input_count = len(universe.tickers)
         stagea_pass_tickers, stagea_drop_reasons = self._run_stage_a(
             universe.tickers, trade_date, data_access
@@ -227,7 +231,6 @@ class ScreenerEngine:
             f"[Screener] Stage A complete: {stagea_pass_count}/{stagea_input_count} passed "
             f"(dropped {stagea_drop_count})"
         )
-        print(f"[SCREENER] Stage A: done | {stagea_pass_count}/{stagea_input_count} passed | dropped {stagea_drop_count}")
 
         # B-8.1: apply stageb_max_input truncation before Stage B
         stageb_max = self.config.get("stageb_max_input", 1000)
@@ -235,19 +238,21 @@ class ScreenerEngine:
             _logger.info(f"[Screener] Stage B limit applied: {len(stagea_pass_tickers)} -> {stageb_max}")
             stagea_pass_tickers = stagea_pass_tickers[:stageb_max]
 
-        print()
-        print(f"[SCREENER] Stage B: running strategies on {len(stagea_pass_tickers)} stocks...")
-        print()
+        print_stage_header("Stage B", f"running strategies on {len(stagea_pass_tickers)} stocks")
 
         technical_strategy, policy_strategy, smart_money_strategy = self._build_strategies(data_access)
-        print(f"[SCREENER] Stage B: running TechnicalStrategy on {len(stagea_pass_tickers)} stocks...")
+        console.print("[dim]  Running TechnicalStrategy...[/dim]", end="\r")
         technical_outcome = technical_strategy.run(stagea_pass_tickers, trade_date)
-        print(f"[SCREENER] Stage B: running PolicyStrategy on {len(stagea_pass_tickers)} stocks...")
+        console.print(f"[green]  [OK] TechnicalStrategy[/green]  [cyan]{len(technical_outcome.cards)}[/cyan] cards  ", end="\r")
+
+        console.print("[dim]  Running PolicyStrategy...[/dim]", end="\r")
         policy_outcome = policy_strategy.run(stagea_pass_tickers, trade_date)
-        print(f"[SCREENER] Stage B: running SmartMoneyStrategy on {len(stagea_pass_tickers)} stocks...")
+        console.print(f"[green]  [OK] PolicyStrategy[/green]  [cyan]{len(policy_outcome.cards)}[/cyan] cards  ", end="\r")
+
+        console.print("[dim]  Running SmartMoneyStrategy...[/dim]", end="\r")
         smart_money_outcome = smart_money_strategy.run(stagea_pass_tickers, trade_date)
-        print()
-        print(f"[SCREENER] Stage B: all strategies done | Technical={len(technical_outcome.cards)} cards | Policy={len(policy_outcome.cards)} cards | SmartMoney={len(smart_money_outcome.cards)} cards")
+        console.print()
+        console.print(f"[green][OK] Stage B done[/green]  Technical=[cyan]{len(technical_outcome.cards)}[/cyan]  Policy=[cyan]{len(policy_outcome.cards)}[/cyan]  SmartMoney=[cyan]{len(smart_money_outcome.cards)}[/cyan]")
 
         merged_candidates, dropped_candidates = merge_signal_cards(
             technical_outcome.cards + policy_outcome.cards + smart_money_outcome.cards,
@@ -257,12 +262,11 @@ class ScreenerEngine:
 
         deep_results = []
         if enable_deep_analysis and merged_candidates:
-            print()
-            print("[SCREENER] Stage DeepAnalysis: starting deep analysis of candidates...")
+            print_stage_header("Stage DeepAnalysis", f"deep analysis of {len(merged_candidates)} candidates")
             deep_analyzer = self._build_deep_analyzer()
             deep_results = deep_analyzer.analyze_top_candidates(merged_candidates, trade_date)
         elif enable_deep_analysis and not merged_candidates:
-            print("[SCREENER] Stage DeepAnalysis: skipped (no candidates)")
+            console.print("[yellow]  DeepAnalysis skipped (no candidates)[/yellow]")
 
         completed_at = datetime.now()
 
@@ -339,7 +343,6 @@ class ScreenerEngine:
             metrics=metrics.model_dump(),
         )
 
-        print()
         from tradingagents.screener.name_resolver import NameResolver
 
         resolver = NameResolver(data_access=data_access, trade_date=trade_date)
@@ -355,10 +358,8 @@ class ScreenerEngine:
             card.company_name = resolver.resolve(card.raw_code)
             return card
 
-        print(f"[SCREENER] Stage Names: resolving company names for {len(merged_candidates)} candidates...")
-        for i, card in enumerate(merged_candidates, 1):
-            if i % 10 == 0 or i == len(merged_candidates):
-                print(f"[SCREENER] Stage Names: resolving {i}/{len(merged_candidates)}...")
+        print_stage_header("Stage Names", f"resolving company names for {len(merged_candidates)} candidates")
+        for card in merged_candidates:
             _inject_name(card)
         for item in dropped_candidates:
             if isinstance(item, dict):
@@ -397,10 +398,6 @@ class ScreenerEngine:
         result.data_issues.extend(check_data_consistency(result))
 
         elapsed = (datetime.now() - started_at).total_seconds()
-        print()
-        print("=" * 70)
-        print(f"[SCREENER] COMPLETE | {len(merged_candidates)} candidates | {len(deep_results)} deep-analyzed | elapsed={elapsed:.1f}s")
-        print("=" * 70)
-        print()
+        print_completion_banner(len(merged_candidates), len(deep_results), elapsed)
 
         return result
