@@ -34,7 +34,7 @@ class DataSourceConfig:
     probe_timeout: float = 30.0
     max_retries: int = 2
     retry_delay: float = 1.0
-    sina_page_interval: float = 0.5
+    sina_page_interval: float = 1.5
     ths_interval: float = 1.0
     random_jitter: float = 0.1
     graceful_degrade: bool = True

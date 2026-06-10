@@ -159,7 +159,10 @@ def _render_trigger_route_card(result: DeepAnalysisResult) -> List[str]:
 
 def _resolve_output_dir(config: Dict[str, Any] | None = None) -> Path:
     config = config or DEFAULT_CONFIG
+    # D盘项目目录 reports/Screener 作为首选
+    project_root = Path(__file__).resolve().parents[2]
     candidates = [
+        project_root / "reports" / "Screener",
         Path(config.get("results_dir", DEFAULT_CONFIG["results_dir"])) / "screener",
         Path.cwd() / "reports" / "screener",
     ]

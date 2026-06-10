@@ -139,7 +139,7 @@ SCREENER_CONFIG: Dict[str, Any] = {
         "same_sector_limit": 2,
     },
     "anti_ban": {
-        "base_interval": 0.5,
+        "base_interval": 1.0,
         "burst_threshold": 10,
         "burst_pause": 2.0,
         "failure_penalty": 1.5,
