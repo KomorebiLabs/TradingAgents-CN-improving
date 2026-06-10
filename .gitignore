@@ -153,6 +153,7 @@ activemq-data/
 .env.*.local
 !.env.enterprise.example
 !.env.rag.example
+!.env.example
 
 # TradingAgents runtime cache (probe results, universe cache, hist cache)
 .tradingagents/
@@ -233,3 +234,8 @@ __marimo__/
 # Local debug scratch scripts (root-level temporary diagnostics)
 /_*.py
 /.tmp_*
+
+# Cursor/Cody IDE generated files
+.claude/
+AGENTS.md
+CLAUDE.md

@@ -824,8 +824,8 @@ TradingAgentsGraph 在初始化时配置两个 LLM：
 
 | 模型角色 | 用途 | 模型示例 |
 |----------|------|----------|
-| `deep_think_llm` | 复杂推理节点（Research Manager、Portfolio Manager） | GPT-5.4、Gemini 3.1 |
-| `quick_think_llm` | 快速分析节点（Analysts、Researchers、Trader） | GPT-5.4-mini、Gemini 3.0 |
+| `deep_think_llm` | 复杂推理节点（Research Manager、Portfolio Manager） | GPT-5.4、GPT-5.5、Gemini 3.1 Pro |
+| `quick_think_llm` | 快速分析节点（Analysts、Researchers、Trader） | GPT-5.4-mini、Gemini 3.5 Flash |
 
 ---
 
