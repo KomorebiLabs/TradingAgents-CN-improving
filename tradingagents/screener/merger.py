@@ -12,6 +12,7 @@ POLICY_SELECTION_TAGS = {
     "policy_top_stock",
     "policy_core_member",
     "policy_cross_hit_candidate",
+    "policy_focus_aligned",  # P5-focus
     "policy_keyword_fallback",
 }
 
@@ -339,6 +340,9 @@ def _policy_strength(card: SignalCard) -> int:
     if policy_tag == "policy_core_member":
         return 2
     if policy_tag == "policy_cross_hit_candidate":
+        return 1
+    # P5-focus: focus-aligned fallback is semantically better than keyword fallback
+    if policy_tag == "policy_focus_aligned":
         return 1
     if policy_tag == "policy_keyword_fallback":
         return 0
