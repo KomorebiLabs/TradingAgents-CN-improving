@@ -216,6 +216,13 @@ class ScreenerEngine:
                 "Hint: Try --mode CUSTOM with --tickers <list> to skip index constituent fetching."
             )
 
+        # P5-focus: propagate universe focus to strategy config
+        if universe.metadata.get("focus_type"):
+            self.config["policy_focus"] = {
+                "focus_type": universe.metadata["focus_type"],
+                "focus_value": universe.metadata["focus_value"],
+            }
+
         console.print(f"[green][OK] Universe ready[/green]  [dim]{len(universe.tickers)} stocks  mode=[cyan]{mode}[/cyan]")
 
         # P5-3: Stage A - Light pre-screening
