@@ -165,8 +165,10 @@ VENDOR_METHODS: Dict[str, Dict[str, Callable]] = {
         "legacy_alpha_vantage": _lazy_callable(".alpha_vantage", "get_stock"),
     },
     "get_indicators": {
-        "legacy_yfinance": _lazy_callable(".y_finance", "get_stock_stats_indicators_window"),
+        "tencent_finance": _lazy_callable(".cn_indicators", "get_cn_indicators"),
+        "sina_finance": _lazy_callable(".cn_indicators", "get_cn_indicators"),
         "legacy_alpha_vantage": _lazy_callable(".alpha_vantage", "get_indicator"),
+        "legacy_yfinance": _lazy_callable(".y_finance", "get_stock_stats_indicators_window"),
     },
     "get_fundamentals": {
         "ths_data": _lazy_callable(".akshare_interface", "get_akshare_fundamentals"),
@@ -297,7 +299,7 @@ _attach_legacy_aliases()
 
 DEFAULT_VENDOR_PRIORITY = {
     "core_stock_apis": "tencent_finance,sina_finance,baostock_data,legacy_yfinance",
-    "technical_indicators": "legacy_yfinance,legacy_alpha_vantage",
+    "technical_indicators": "tencent_finance,sina_finance,legacy_alpha_vantage,legacy_yfinance",
     "fundamental_data": "ths_data,legacy_akshare,legacy_yfinance",
     "news_data": "ths_data,baidu_finance,legacy_akshare,legacy_yfinance",
     "cn_macro_data": "baidu_finance,legacy_akshare",
