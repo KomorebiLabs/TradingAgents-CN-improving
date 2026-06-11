@@ -33,6 +33,15 @@ POLICY_KEYWORDS = {
     "低空经济": ["低空", "无人机", "通航"],
 }
 
+# P5-focus: mapping from universe focus_value to THS concept name aliases
+# Used when news_df matching fails but universe has a focus (FOCUSED mode)
+_FOCUS_ALIAS_KEYWORDS: Dict[str, List[str]] = {
+    "semiconductor": ["半导体", "芯片", "集成电路", "集成电路制造", "半导体设备"],
+    "new_energy": ["新能源", "光伏", "储能", "电池", "新能源汽车"],
+    "AI": ["人工智能", "AI", "大模型", "算力", "AI芯片"],
+    "robot": ["机器人", "自动化", "智能制造", "人形机器人"],
+    "low_altitude": ["低空", "无人机", "通航", "eVTOL"],
+}
 
 class PolicyStrategy:
     def __init__(self, data_access, config: Dict[str, Any] | None = None):
@@ -106,7 +115,12 @@ class PolicyStrategy:
             if hasattr(self.data_access, "fetch_policy_news_baidu")
             else None
         )
-        selected_concepts, keyword_mode = self._select_policy_concepts(concept_df, news_df)
+        policy_focus = self.config.get("policy_focus")
+        selected_concepts, keyword_mode, selection_mode = self._select_policy_concepts(
+            concept_df,
+            news_df,
+            policy_focus,
+        )
         # H6 OPTIMIZATION: respect max_concepts budget cap
         selected_concepts = selected_concepts[:max_concepts]
         degraded_reason = self._build_degradation_reason(concept_verified, bool(selected_concepts), keyword_mode)
@@ -357,17 +371,30 @@ class PolicyStrategy:
         return StrategyOutcome(cards=cards, status=status, warnings=warnings)
 
     @staticmethod
-    def _select_policy_concepts(concept_df: Any, news_df: Any) -> tuple[list[str], bool]:
+    def _select_policy_concepts(
+        concept_df: Any,
+        news_df: Any,
+        policy_focus: Dict[str, str] | None = None,
+    ) -> tuple[list[str], bool, str]:
+        """Select policy concepts from THS concept list.
+
+        Returns:
+            selected_concepts: list of concept names
+            keyword_mode: bool — True if relying on keyword/fallback matching (reduces scores)
+            selection_mode: str — "news_matched" | "focus_aligned" | "keyword_fallback"
+        """
         if concept_df is None or getattr(concept_df, "empty", True):
-            return [], True
+            return [], True, "keyword_fallback"
 
         concept_names = concept_df["name"].astype(str).tolist() if "name" in concept_df.columns else []
         if not concept_names:
-            return [], True
+            return [], True, "keyword_fallback"
 
+        # Step A: news_df 无数据（None/empty）→ 无法判断，返回 THS 前5 + keyword_mode=True
         if news_df is None or getattr(news_df, "empty", True):
-            return concept_names[:5], True
+            return concept_names[:5], True, "keyword_fallback"
 
+        # Step B: news_df 有内容，尝试精确匹配
         text_columns = [col for col in news_df.columns if str(col) in {"事件", "内容", "标题", "event"}]
         joined = " ".join(
             str(value)
@@ -376,17 +403,34 @@ class PolicyStrategy:
         )
         matched = [name for name in concept_names if name in joined]
         if matched:
-            return matched[:5], False
+            return matched[:5], False, "news_matched"
 
+        # Step C: POLICY_KEYWORDS 匹配（原有逻辑）
         keyword_concepts: List[str] = []
         for concept_name, keywords in POLICY_KEYWORDS.items():
             if any(keyword in joined for keyword in keywords):
                 keyword_concepts.append(concept_name)
 
-        fallback = [name for name in concept_names if any(seed in name for seed in keyword_concepts)]
-        if fallback:
-            return fallback[:5], True
-        return concept_names[:5], True
+        keyword_fallback = [n for n in concept_names if any(seed in n for seed in keyword_concepts)]
+        if keyword_fallback:
+            return keyword_fallback[:5], True, "keyword_fallback"
+
+        # Step D: news 匹配失败但存在 focus → 用 focus 语义匹配（新增）
+        if policy_focus and policy_focus.get("focus_value"):
+            focus_value = policy_focus["focus_value"].lower()
+            focus_aliases = _FOCUS_ALIAS_KEYWORDS.get(focus_value, [])
+            if not focus_aliases:
+                focus_aliases = [policy_focus["focus_value"]]
+
+            matched = [
+                name for name in concept_names
+                if any(alias in name for alias in focus_aliases)
+            ]
+            if matched:
+                return matched[:5], True, "focus_aligned"
+
+        # Step E: 完全兜底（原有行为，保留）
+        return concept_names[:5], True, "keyword_fallback"
 
     @staticmethod
     def _concept_heat_score(concept_name: str, news_df: Any) -> float:
