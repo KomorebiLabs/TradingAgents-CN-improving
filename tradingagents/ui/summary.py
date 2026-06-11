@@ -55,10 +55,13 @@ def print_analyzer_summary(result: Dict[str, Any]) -> None:
     }.get(decision.upper() if isinstance(decision, str) else "", "white")
     summary_table.add_row("Decision", f"[{decision_style}]{decision}[/{decision_style}]")
     
-    confidence = result.get("confidence", 0)
-    conf_bar = "█" * (confidence // 10) + "░" * (10 - confidence // 10)
-    conf_color = "green" if confidence >= 70 else "yellow" if confidence >= 40 else "red"
-    summary_table.add_row("Confidence", f"[{conf_color}]{conf_bar}[/{conf_color}] {confidence}%")
+    confidence = result.get("confidence")
+    if confidence is None:
+        summary_table.add_row("Confidence", "[dim]N/A (pending feature)[/dim]")
+    else:
+        conf_bar = "█" * (confidence // 10) + "░" * (10 - confidence // 10)
+        conf_color = "green" if confidence >= 70 else "yellow" if confidence >= 40 else "red"
+        summary_table.add_row("Confidence", f"[{conf_color}]{conf_bar}[/{conf_color}] {confidence}%")
 
     elapsed = result.get("elapsed_time", 0)
     mins, secs = divmod(int(elapsed), 60)

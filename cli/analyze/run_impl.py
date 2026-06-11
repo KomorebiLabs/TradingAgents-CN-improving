@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -283,7 +283,7 @@ def run_analysis(config: dict) -> dict:
     result = {
         "ticker": ticker,
         "decision": decision,
-        "confidence": 0,  # TODO: extract from final_state if available
+        "confidence": None,  # TODO: extract from final_state if available
         "elapsed_time": elapsed,
         "llm_calls": stats.get("llm_calls", 0),
         "tool_calls": stats.get("tool_calls", 0),
@@ -442,16 +442,16 @@ def print_reports_saved(report_dir: Path, ticker: str, date: str) -> None:
     path_text = Text(f"  {expanded_path}", style="dim")
 
     # Build content
-    content_lines = [
+    grouped_content = Group(
         path_text,
-        "",
+        Text(""),
         file_table,
-        "",
+        Text(""),
         Text(f"  {saved_count} report file(s) saved", style="dim"),
-    ]
+    )
 
     console.print(Panel(
-        content_lines,
+        grouped_content,
         title="[bold green]Reports Saved[/bold green]",
         border_style="green",
         padding=(1, 2),

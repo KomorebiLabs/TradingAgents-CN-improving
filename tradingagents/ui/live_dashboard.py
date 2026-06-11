@@ -398,6 +398,19 @@ class LiveDashboard:
         # Risk debate state
         if "risk_debate_state" in chunk:
             risk = chunk["risk_debate_state"]
+            latest_speaker = risk.get("latest_speaker", "")
+
+            # Mark agents as completed when they finish speaking
+            if latest_speaker == "Aggressive" and risk.get("aggressive_history"):
+                # Conservative or Neutral will speak next, so Aggressive is done
+                self.update_agent_status("Aggressive Analyst", "completed")
+            if latest_speaker == "Conservative" and risk.get("conservative_history"):
+                # Neutral will speak next, so Conservative is done
+                self.update_agent_status("Conservative Analyst", "completed")
+            if latest_speaker == "Neutral" and risk.get("neutral_history"):
+                # Round complete, Neutral is done
+                self.update_agent_status("Neutral Analyst", "completed")
+
             if any(risk.get(k) for k in ["aggressive_history", "conservative_history", "neutral_history"]):
                 self.update_agent_status("Aggressive Analyst", "in_progress")
                 self.add_event("Risk: analysis in progress")
