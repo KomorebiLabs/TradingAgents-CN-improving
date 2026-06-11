@@ -205,7 +205,12 @@ class PolicyStrategy:
             source_quality_score = 75.0 if news_df is not None and not getattr(news_df, "empty", True) else 45.0
             liquidity_score = max(40.0, 68.0 - idx * 2.0)
             concept_breadth_score = concept_profiles.get(mapped_concept, {}).get("concept_breadth_score", 42.0)
-            stock_selection_tag = self._build_stock_selection_tag(member_metrics, cross_hit_score, keyword_mode)
+            stock_selection_tag = self._build_stock_selection_tag(
+                member_metrics,
+                cross_hit_score,
+                keyword_mode,
+                selection_mode,
+            )
             concept_weight_bucket = self._build_concept_weight_bucket(
                 raw_code=raw_code,
                 is_member=member_metrics.get("is_member", False),
@@ -310,6 +315,7 @@ class PolicyStrategy:
                         keyword_mode=keyword_mode,
                         stock_selection_tag=stock_selection_tag,
                         concept_weight_bucket=concept_weight_bucket,
+                        selection_mode=selection_mode,
                     ),
                     initial_confidence=min(94.0, score + (4.0 if concept_verified else 0.0)),
                     risk_flags=self._build_risk_flags(
@@ -805,6 +811,7 @@ class PolicyStrategy:
         member_metrics: Dict[str, Any],
         cross_hit_score: float,
         keyword_mode: bool,
+        selection_mode: str = "keyword_fallback",
     ) -> str:
         if member_metrics.get("top_tier_hit"):
             return "policy_top_stock"
@@ -812,6 +819,9 @@ class PolicyStrategy:
             return "policy_core_member"
         if cross_hit_score >= 80 and not keyword_mode:
             return "policy_cross_hit_candidate"
+        # P5-focus: focus_aligned but not a THS member → better than pure keyword fallback
+        if selection_mode == "focus_aligned":
+            return "policy_focus_aligned"
         return "policy_keyword_fallback"
 
     @staticmethod
@@ -819,12 +829,14 @@ class PolicyStrategy:
         keyword_mode: bool,
         stock_selection_tag: str,
         concept_weight_bucket: str,
+        selection_mode: str = "keyword_fallback",
     ) -> str:
         """Build the trigger reason string for a signal card.
 
-        New Phase4 logic (replaces board_rank_bucket references):
+        Phase4 + P5-focus logic:
             policy_top_stock              -> policy_concept_top_pick
-            concept_weight_bucket starts with concept_weight_core/quality -> policy_concept_core_member
+            concept_weight_core/quality    -> policy_concept_core_member
+            policy_focus_aligned          -> policy_event_focus_aligned
             keyword_mode                  -> policy_event_keyword_fallback
             otherwise                     -> policy_event_concept_map
         """
@@ -832,6 +844,9 @@ class PolicyStrategy:
             return "policy_concept_top_pick"
         if concept_weight_bucket in ("concept_weight_core", "concept_weight_quality"):
             return "policy_concept_core_member"
+        # P5-focus: distinguish focus_aligned from pure keyword fallback
+        if stock_selection_tag == "policy_focus_aligned":
+            return "policy_event_focus_aligned"
         if keyword_mode:
             return "policy_event_keyword_fallback"
         return "policy_event_concept_map"
