@@ -59,15 +59,13 @@ def _print_welcome() -> None:
     console.print()
 
     # Fetch and display announcements (silent on failure)
-    # NOTE: fetch_announcements lives in the old commands/ layer which requires questionary.
-    # Only import it if questionary is available; otherwise skip silently.
     try:
-        from tradingagents.commands.analyze.utils import fetch_announcements, display_announcements
+        from cli.announcements import fetch_announcements, display_announcements
         announcements = fetch_announcements()
         if announcements:
             display_announcements(console, announcements)
     except Exception:
-        pass  # Silently skip if questionary unavailable or other error
+        pass  # Announcements are best-effort only
 
 
 def get_user_config() -> dict:
@@ -186,13 +184,9 @@ def run() -> None:
     """
     import sys
     config = get_user_config()
-    print(f"\n[DEBUG app.py] Config assembled: provider={config['llm_provider']}, models={config['shallow_thinking_model']}/{config['deep_thinking_model']}, analysts={config['analysts']}", flush=True)
-    sys.stdout.flush()
 
     # Import and run the execution engine
     from cli.analyze.run_impl import run_analysis
-    print("[DEBUG app.py] About to call run_analysis()...", flush=True)
-    sys.stdout.flush()
     result = run_analysis(config)
 
     # Show summary

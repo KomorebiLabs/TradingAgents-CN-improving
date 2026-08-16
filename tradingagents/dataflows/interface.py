@@ -131,22 +131,6 @@ def _coerce_tabular(result) -> str:
     return str(result)
 
 
-def _call_screener_data_access(method_name: str, *args, **kwargs) -> str:
-    from tradingagents.screener.data_access import ScreenerDataAccess
-
-    access = ScreenerDataAccess(config=get_config())
-    method = getattr(access, method_name)
-    return _coerce_tabular(method(*args, **kwargs))
-
-
-def _screener_callable(method_name: str) -> Callable:
-    def _call(*args, **kwargs):
-        return _call_screener_data_access(method_name, *args, **kwargs)
-
-    _call.__name__ = method_name
-    return _call
-
-
 def _raise_vendor_unavailable(vendor: str, method: str) -> Callable:
     def _call(*args, **kwargs):
         raise RuntimeError(
@@ -374,17 +358,6 @@ def route_to_vendor(method: str, *args, **kwargs):
             if vendor in VENDOR_LIST:
                 optional_vendor_errors.append(f"{vendor}: not registered for {method}")
                 continue
-
-        alias_names = [
-            alias
-            for alias, canonical in VENDOR_ALIASES.items()
-            if canonical == vendor and alias in registered and registered[alias] is not impl_func
-        ]
-        for alias_name in alias_names:
-            alias_impl = registered.get(alias_name)
-            if alias_impl is not None and alias_impl is not impl_func:
-                impl_func = alias_impl
-                break
 
         try:
             return impl_func(*args, **kwargs)

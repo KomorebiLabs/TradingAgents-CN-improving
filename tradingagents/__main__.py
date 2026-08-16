@@ -2,23 +2,19 @@
 
 Usage:
     python -m tradingagents              -- interactive main menu
-    python -m tradingagents analyze     -- Stage 2: deep multi-agent analysis (original cli/main.py)
+    python -m tradingagents analyze     -- Stage 2: deep multi-agent analysis
     python -m tradingagents screener    -- Stage 1: stock candidate screening
     python -m tradingagents --version
     python -m tradingagents --info
-    python -m tradingagents config show
 """
 
 from __future__ import annotations
 
-import sys
-
 import typer
 
+from tradingagents import __version__
 from tradingagents.ui.theme import TRADING_THEME
 from tradingagents.ui.terminal_mascot import print_komo
-
-__version__ = "2.0.0"
 
 # Create app with custom theme
 app = typer.Typer(
@@ -30,7 +26,7 @@ app = typer.Typer(
 )
 
 
-# Subcommand: analyze (Stage 2 - original cli/main.py logic)
+# Subcommand: analyze (Stage 2)
 @app.command("analyze")
 def analyze_cmd(
     ticker: str = typer.Option(None, "--ticker", "-t", help="Ticker symbol to analyze"),
@@ -40,37 +36,47 @@ def analyze_cmd(
     """Stage 2: Deep multi-agent analysis of a single stock.
 
     Launches the full TradingAgents pipeline (Analysts -> Research -> Trading -> Risk -> Portfolio).
-    This is the original `python -m cli.main` functionality.
+
+    With --no-interactive, --ticker (and optionally --date) run directly with default settings.
     """
-    # Prefer new unified CLI (cli.analyze.app) over old commands layer
-    try:
-        from cli.analyze.app import run as analyze_run
+    from cli.analyze.app import run as analyze_run
+
+    if interactive or not ticker:
         analyze_run()
-    except (ImportError, AttributeError):
-        from tradingagents.commands.analyze import run_analyze
-        run_analyze(ticker=ticker, date=date, interactive=interactive)
+        return
+
+    # Non-interactive mode: assemble defaults and execute directly.
+    from datetime import datetime
+
+    from cli.analyze.run_impl import run_analysis
+    from cli.models import AnalystType
+    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.ui.summary import print_summary
+
+    config = {
+        "ticker": ticker,
+        "date": date or datetime.now().strftime("%Y-%m-%d"),
+        "output_language": "English",
+        "analysts": list(AnalystType),
+        "research_depth": 1,
+        "llm_provider": DEFAULT_CONFIG["llm_provider"],
+        "backend_url": DEFAULT_CONFIG.get("backend_url"),
+        "shallow_thinking_model": DEFAULT_CONFIG["quick_think_llm"],
+        "deep_thinking_model": DEFAULT_CONFIG["deep_think_llm"],
+        "thinking_level": None,
+        "reasoning_effort": None,
+        "anthropic_effort": None,
+    }
+    result = run_analysis(config)
+    print_summary(result, module_type="analyzer")
 
 
-# Subcommand: screener (Stage 1 - existing tradingagents/screener/cli)
-@app.command("screener")
-def screener_cmd(
-    ctx: typer.Context,
-):
-    """Stage 1: A-share stock candidate screening.
+# Subcommand: screener (Stage 1) — registered as a sub-app so that
+# `python -m tradingagents screener run --date ...` works natively
+# without any sys.argv rewriting.
+from cli.screener.app import screener_app  # noqa: E402
 
-    Discovers top stock candidates through multi-strategy screening.
-    Usage: python -m tradingagents screener [run] [OPTIONS]
-
-    Examples:
-        python -m tradingagents screener                           -- interactive wizard
-        python -m tradingagents screener run --date 2026-05-18   -- quick run
-        python -m tradingagents screener run --tickers 600519,000001
-    """
-    from tradingagents.screener.cli.app import app as screener_app
-
-    remaining_args = sys.argv[2:]
-    sys.argv = ["screener"] + remaining_args
-    screener_app()
+app.add_typer(screener_app, name="screener")
 
 
 @app.command("report")
@@ -79,16 +85,11 @@ def report_cmd(
 ):
     """Open HTML report in browser.
 
-    Opens a TradingAgents HTML report for viewing.
     Usage: python -m tradingagents report [PATH]
     """
-    try:
-        from tradingagents.commands.report import view_report
-        view_report(path)
-    except ImportError:
-        from rich.console import Console
-        console = Console()
-        console.print("[yellow]Report viewer not available (module not found).[/yellow]")
+    from cli.report_viewer import view_report
+
+    view_report(path)
 
 
 @app.callback(invoke_without_command=True)
@@ -101,7 +102,6 @@ def main(
     if version:
         from rich.console import Console
         from rich.panel import Panel
-        from rich.table import Table
 
         console = Console(theme=TRADING_THEME)
         print_komo()

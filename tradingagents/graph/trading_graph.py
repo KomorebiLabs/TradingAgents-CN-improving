@@ -1,6 +1,7 @@
 # TradingAgents/graph/trading_graph.py
 
 import os
+from copy import deepcopy
 from pathlib import Path
 import json
 from datetime import date
@@ -18,6 +19,95 @@ class GraphExecutionError(Exception):
         super().__init__(message)
         self.message = message
         self.recoverable = recoverable
+
+
+class _AnalysisStream:
+    """Iterator over one streaming analysis run.
+
+    Returned by :meth:`TradingAgentsGraph.stream_analysis`. Iterating yields
+    raw LangGraph state snapshots (``stream_mode="values"``). After the
+    iterator is exhausted, ``final_state`` / ``decision`` / ``result`` hold
+    the synchronized outcome. Graph failures finalize into an error fallback
+    state (matching ``propagate()`` semantics) instead of raising mid-stream.
+    """
+
+    def __init__(
+        self,
+        graph: "TradingAgentsGraph",
+        company_name: str,
+        trade_date,
+        callbacks: Optional[List] = None,
+    ):
+        self._graph = graph
+        self._company = company_name
+        self._trade_date = trade_date
+        self._callbacks = callbacks
+        self.final_state: Optional[Dict[str, Any]] = None
+        self.decision: str = ""
+        self._consumed = False
+
+    @property
+    def result(self) -> Tuple[Dict[str, Any], str]:
+        """``(final_state, decision)`` after the stream has been consumed."""
+        if self.final_state is None:
+            raise RuntimeError("Analysis stream has not been consumed yet.")
+        return self.final_state, self.decision
+
+    def __iter__(self):
+        if self._consumed:
+            raise RuntimeError("Analysis stream can only be consumed once.")
+        self._consumed = True
+        yield from self._run()
+
+    def _run(self):
+        graph = self._graph
+        init_state = graph.propagator.create_initial_state(
+            self._company, self._trade_date, graph.graph_setup.selected_analysts
+        )
+        if graph._historical_context is not None:
+            init_state["historical_context"] = graph._historical_context
+        args = graph.propagator.get_graph_args(callbacks=self._callbacks)
+
+        last_state: Optional[Dict[str, Any]] = None
+        try:
+            for chunk in graph.graph.stream(init_state, **args):
+                if graph.debug:
+                    messages = chunk.get("messages", [])
+                    if messages:
+                        messages[-1].pretty_print()
+                last_state = chunk
+                yield chunk
+        except RecursionError:
+            last_state = graph._create_fallback_state(
+                init_state,
+                f"Max recursion limit reached for {self._company}"
+            )
+        except Exception as e:
+            last_state = graph._create_fallback_state(
+                init_state,
+                f"Graph execution failed: {str(e)}"
+            )
+
+        if last_state is None:
+            if graph.debug:
+                raise GraphExecutionError(
+                    f"No trace collected for {self._company} on {self._trade_date}"
+                )
+            last_state = graph._create_fallback_state(
+                init_state,
+                f"Graph execution produced no state for {self._company}"
+            )
+
+        final_state = graph._synchronize_structured_state(last_state)
+        graph.curr_state = final_state
+        graph._log_state(self._trade_date, final_state)
+        try:
+            self.decision = graph.process_signal(
+                final_state.get("final_trade_decision", "")
+            )
+        except Exception:
+            self.decision = "N/A"
+        self.final_state = final_state
 
 
 from langgraph.prebuilt import ToolNode
@@ -69,7 +159,14 @@ class TradingAgentsGraph:
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
         """
         self.debug = debug
-        self.config = config or DEFAULT_CONFIG
+        # Merge partial user config over a private copy of the defaults so:
+        # 1. callers may override individual keys without KeyError on
+        #    data_cache_dir / results_dir / max_debate_rounds etc.;
+        # 2. instance-level config writes never leak into DEFAULT_CONFIG
+        #    or into the caller's dict.
+        self.config = deepcopy(DEFAULT_CONFIG)
+        if config:
+            self.config.update(config)
         self.callbacks = callbacks or []
         semantic_slots = validate_semantic_prompt_slots(
             self.config.get("screener_context", {}).get("semantic_prompt_slots", {})
@@ -201,57 +298,38 @@ class TradingAgentsGraph:
             "fundamentals": ToolNode(_safe_tools("fundamentals")),
         }
 
+    def stream_analysis(
+        self,
+        company_name: str,
+        trade_date,
+        callbacks: Optional[List] = None,
+    ) -> _AnalysisStream:
+        """Public streaming API for one analysis run.
+
+        Usage::
+
+            run = graph.stream_analysis(company, date, callbacks=[handler])
+            for chunk in run:
+                ...  # dashboard updates / logging
+            final_state, decision = run.result
+
+        Chunks are raw LangGraph state snapshots (``stream_mode="values"``).
+        On graph failure the stream finalizes into an error fallback state
+        instead of raising mid-stream, matching ``propagate()`` semantics.
+        """
+        self.ticker = company_name
+        return _AnalysisStream(self, company_name, trade_date, callbacks=callbacks)
+
     def propagate(self, company_name, trade_date):
         """Run the trading agents graph for a company on a specific date.
 
         Raises:
             GraphExecutionError: If graph execution fails after retries
         """
-        self.ticker = company_name
-
-        try:
-            init_agent_state = self.propagator.create_initial_state(
-                company_name, trade_date, self.graph_setup.selected_analysts
-            )
-            # P4 Memory: Inject historical context into initial state
-            if self._historical_context is not None:
-                init_agent_state["historical_context"] = self._historical_context
-            args = self.propagator.get_graph_args()
-
-            if self.debug:
-                trace = []
-                for chunk in self.graph.stream(init_agent_state, **args):
-                    if len(chunk.get("messages", [])) == 0:
-                        pass
-                    else:
-                        chunk["messages"][-1].pretty_print()
-                        trace.append(chunk)
-
-                if not trace:
-                    raise GraphExecutionError(
-                        f"No trace collected for {company_name} on {trade_date}"
-                    )
-                final_state = trace[-1]
-            else:
-                final_state = self.graph.invoke(init_agent_state, **args)
-
-        except RecursionError:
-            final_state = self._create_fallback_state(
-                init_agent_state,
-                f"Max recursion limit reached for {company_name}"
-            )
-        except Exception as e:
-            final_state = self._create_fallback_state(
-                init_agent_state,
-                f"Graph execution failed: {str(e)}"
-            )
-
-        final_state = self._synchronize_structured_state(final_state)
-        self.curr_state = final_state
-
-        self._log_state(trade_date, final_state)
-
-        return final_state, self.process_signal(final_state.get("final_trade_decision", ""))
+        stream = self.stream_analysis(company_name, trade_date)
+        for _ in stream:
+            pass
+        return stream.result
 
     def _create_fallback_state(
         self, initial_state: Dict[str, Any], error_message: str

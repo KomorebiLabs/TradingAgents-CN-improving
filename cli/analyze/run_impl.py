@@ -125,20 +125,13 @@ def run_analysis(config: dict) -> dict:
     selected_analyst_keys = [a for a in ANALYST_ORDER if a in selected_set]
 
     # Initialize graph
-    import sys
-    print("[DEBUG] Step 1: About to import TradingAgentsGraph...", flush=True)
-    sys.stdout.flush()
     from tradingagents.graph.trading_graph import TradingAgentsGraph
-    print("[DEBUG] Step 2: TradingAgentsGraph imported. Creating instance...", flush=True)
-    sys.stdout.flush()
     graph = TradingAgentsGraph(
         selected_analyst_keys,
         config=graph_config,
         debug=True,
         callbacks=[stats_handler],
     )
-    print("[DEBUG] Step 3: TradingAgentsGraph instance created.", flush=True)
-    sys.stdout.flush()
 
     # Create results directory — save to project reports/ folder
     project_root = Path(__file__).resolve().parents[2]
@@ -206,19 +199,12 @@ def run_analysis(config: dict) -> dict:
     for name in [ANALYST_AGENT_NAMES[k] for k in selected_analyst_keys]:
         dashboard.update_agent_status(name, "pending")
 
-    # Initialize graph state
-    init_state = graph.propagator.create_initial_state(ticker, date, selected_analyst_keys)
-    graph_args = graph.propagator.get_graph_args(callbacks=[stats_handler])
-
-    # Run with dashboard
-    trace = []
+    # Run the graph through its public streaming API.
+    # The stream finalizes final_state/decision after exhaustion.
+    run = graph.stream_analysis(ticker, date, callbacks=[stats_handler])
 
     def stream_with_dashboard():
-        print("[DEBUG] Step 4: Starting graph.stream()...", flush=True)
-        sys.stdout.flush()
-        for i, chunk in enumerate(graph.graph.stream(init_state, **graph_args)):
-            print(f"[DEBUG] Step 5: Got chunk {i}, keys={list(chunk.keys())}", flush=True)
-            sys.stdout.flush()
+        for chunk in run:
             # Process messages
             for message in chunk.get("messages", []):
                 msg_id = getattr(message, "id", None)
@@ -256,27 +242,15 @@ def run_analysis(config: dict) -> dict:
             # Handle debate states
             _handle_debate_states(msg_buf, dashboard, chunk)
 
-            trace.append(chunk)
             yield chunk
 
     # Run dashboard with stream
-    import sys
-    print("[DEBUG] Step 4: Calling dashboard.run()...", flush=True)
-    sys.stdout.flush()
     dashboard.run(stream_with_dashboard(), stats_callback=stats_handler)
-    print("[DEBUG] Step 7: dashboard.run() returned", flush=True)
-    sys.stdout.flush()
 
     # Final processing (outside Live context)
     elapsed = time.time() - start_time
-    final_state = graph._synchronize_structured_state(trace[-1]) if trace else {}
-
-    # Extract decision
-    decision = "N/A"
-    try:
-        decision = graph.process_signal(final_state.get("final_trade_decision", ""))
-    except Exception:
-        pass
+    final_state = run.final_state if run.final_state is not None else {}
+    decision = run.decision if run.final_state is not None else "N/A"
 
     # Build result dict
     stats = stats_handler.get_stats()

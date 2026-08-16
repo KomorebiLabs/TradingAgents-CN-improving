@@ -9,4 +9,12 @@ warnings.filterwarnings("ignore", message="pkg_resources is deprecated", categor
 # 2. akshare: "正在下载数据，请稍等" warning during data fetching
 warnings.filterwarnings("ignore", message="正在下载数据，请稍等", category=UserWarning)
 
-__version__ = "2.0.0"
+# Single version source: pyproject.toml package metadata.
+# Do NOT hardcode a version constant here; bump the version in pyproject.toml only.
+try:
+    from importlib.metadata import PackageNotFoundError, version as _package_version
+
+    __version__ = _package_version("tradingagents")
+except PackageNotFoundError:
+    # Running from a source checkout without installation.
+    __version__ = "0.0.0+source"

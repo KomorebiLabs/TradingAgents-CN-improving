@@ -260,6 +260,8 @@ def run_screener(config: dict) -> dict:
         allow_weekend=allow_weekend,
         focus_type=focus_type,
         focus_value=focus_value,
+        stagea_max_input=config.get("stagea_max_input"),
+        stageb_max_input=config.get("stageb_max_input"),
     )
 
     out_dir = _resolve_output_dir(output_dir)
@@ -282,7 +284,7 @@ def run_screener(config: dict) -> dict:
         engine = ScreenerEngine(config=engine_config)
         console.print("[cyan]▶ Universe -> Stage A -> Stage B -> Merger -> Report[/cyan]")
         console.print()
-        print("[SCREENER] Executing engine.run() - please wait (10-20 minutes for full run)...")
+        console.print("[dim]Executing engine.run() - please wait (10-20 minutes for full run)...[/dim]")
         result = engine.run(
             mode=mode,
             trade_date=trade_date,

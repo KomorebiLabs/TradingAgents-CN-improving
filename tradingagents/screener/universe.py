@@ -484,13 +484,11 @@ def _resolve_sector_theme_name(raw_name: str, data_access: "ScreenerDataAccess |
         return _da
 
     # Step 1: Exact match - check if the name exists directly in concept boards
-    print(f"[SCREENER] Stage Universe: resolving focus '{raw_name}' (step 1/2: exact match)...")
     da = _get_da()
     try:
         # Try to fetch concept constituents directly with the name
         result = da.fetch_concept_constituents(raw_name)
         if result is not None and not getattr(result, "empty", True):
-            print(f"[SCREENER] Stage Universe: resolved '{raw_name}' via exact match")
             return raw_name, "exact"
     except Exception:
         pass
@@ -498,16 +496,12 @@ def _resolve_sector_theme_name(raw_name: str, data_access: "ScreenerDataAccess |
     # Step 2: Alias map lookup
     alias_name = _SECTOR_ALIAS_MAP.get(raw_name.lower())
     if alias_name:
-        print(f"[SCREENER] Stage Universe: resolving '{raw_name}' via alias '{alias_name}' (step 2/2)...")
         try:
             result = da.fetch_concept_constituents(alias_name)
             if result is not None and not getattr(result, "empty", True):
-                print(f"[SCREENER] Stage Universe: resolved '{raw_name}' -> '{alias_name}' via alias match")
                 return alias_name, "alias"
         except Exception:
             pass
-    else:
-        print(f"[SCREENER] Stage Universe: alias not found for '{raw_name}' (no alias in map)")
 
     # Step 3: Explicit failure - do NOT fallback silently
     return None, "failed"
