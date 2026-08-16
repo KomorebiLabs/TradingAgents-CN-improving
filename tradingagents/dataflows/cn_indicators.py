@@ -2,7 +2,7 @@
 A-share Technical Indicators Module.
 
 Provides technical indicator calculations for Chinese A-share stocks using
-Tencent/Sina K-line data via ScreenerDataAccess and stockstats library.
+Tencent/Sina K-line data via MarketDataPort and the stockstats library.
 
 This module is registered as the implementation for:
     VENDOR_METHODS["get_indicators"]["tencent_finance"]
@@ -21,8 +21,7 @@ from typing import Annotated, Optional
 import pandas as pd
 from stockstats import wrap
 
-from tradingagents.dataflows.config import get_config
-from tradingagents.screener.data_access import ScreenerDataAccess
+from tradingagents.ports.market_data import get_market_data_port
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ def _get_cn_hist_data(
     look_back_days: int = 30,
 ) -> pd.DataFrame | None:
     """
-    Fetch historical K-line data for A-share stocks from Tencent/Sina via ScreenerDataAccess.
+    Fetch historical K-line data for A-share stocks via the shared MarketDataPort.
 
     Args:
         symbol: A-share ticker, supports formats like sh600519, sz000001, 600519, etc.
@@ -57,7 +56,7 @@ def _get_cn_hist_data(
         or None if data fetch fails.
     """
     try:
-        access = ScreenerDataAccess(config=get_config())
+        access = get_market_data_port()
 
         end_date = _normalize_date(curr_date)
         start_dt = datetime.strptime(end_date, "%Y-%m-%d") - timedelta(days=look_back_days * 2)
@@ -175,7 +174,7 @@ def get_cn_indicators(
         - VENDOR_METHODS["get_indicators"]["tencent_finance"]
         - VENDOR_METHODS["get_indicators"]["sina_finance"]
 
-    It fetches K-line data from Tencent Finance (primary) via ScreenerDataAccess,
+    It fetches K-line data from Tencent Finance (primary) via MarketDataPort,
     then calculates technical indicators using the stockstats library.
 
     Supported indicators include:

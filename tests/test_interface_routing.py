@@ -58,9 +58,28 @@ class TestRouteToVendor:
         assert not hasattr(interface, "_call_screener_data_access")
 
 
-class TestRagMerge:
-    def test_merge_rag_and_raw_shape(self):
-        merged = interface._merge_rag_and_raw("RAG", "RAW")
-        assert "=== RAG增强信息 ===" in merged
-        assert "=== 原始数据 ===" in merged
-        assert merged.index("RAG") < merged.index("RAW")
+class TestTypedVendorErrors:
+    def test_unavailable_stub_raises_typed_error(self):
+        from tradingagents.dataflows.errors import VendorUnavailable
+
+        stub = interface._raise_vendor_unavailable("baostock_data", "get_stock_data")
+        with pytest.raises(VendorUnavailable):
+            stub()
+
+    def test_typed_errors_still_runtime_errors_for_compat(self):
+        from tradingagents.dataflows.errors import (
+            DataNotFound,
+            VendorError,
+            VendorRateLimited,
+            VendorSchemaChanged,
+            VendorUnavailable,
+        )
+
+        for exc_cls in (VendorRateLimited, VendorUnavailable, DataNotFound, VendorSchemaChanged):
+            assert issubclass(exc_cls, VendorError)
+            assert issubclass(exc_cls, RuntimeError)
+
+    def test_rate_limit_detector_recognizes_typed_error(self):
+        from tradingagents.dataflows.errors import VendorRateLimited
+
+        assert interface._is_rate_limit_error(VendorRateLimited("throttled"))
