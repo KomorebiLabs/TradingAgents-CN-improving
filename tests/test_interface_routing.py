@@ -57,6 +57,24 @@ class TestRouteToVendor:
         assert not hasattr(interface, "_screener_callable")
         assert not hasattr(interface, "_call_screener_data_access")
 
+    def test_akshare_facade_covers_registry_entries(self):
+        """The registry-referenced akshare functions all resolve on the facade.
+
+        Guards the akshare_interface split: implementations moved to
+        dataflows/akshare/ but VENDOR_METHODS still resolves through the
+        facade by string name.
+        """
+        import importlib
+        import re
+        from pathlib import Path
+
+        interface_src = Path(interface.__file__).read_text(encoding="utf-8")
+        registered = set(re.findall(r'\.akshare_interface", "(get_akshare_[a-z_]+)"', interface_src))
+        assert len(registered) >= 23, "registry unexpectedly shrank"
+        facade = importlib.import_module("tradingagents.dataflows.akshare_interface")
+        missing = [n for n in registered if not callable(getattr(facade, n, None))]
+        assert not missing, f"facade missing: {missing}"
+
 
 class TestTypedVendorErrors:
     def test_unavailable_stub_raises_typed_error(self):
