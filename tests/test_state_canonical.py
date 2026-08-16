@@ -167,46 +167,24 @@ class TestLogStateSlimShape:
 
 
 class TestUiReaderMigration:
-    def test_update_analyst_statuses_reads_structured_first(self):
-        from cli.analyze import run_impl
+    """Superseded: UI chunk interpretation moved to the application layer.
 
-        msg_buf = MagicMock()
-        msg_buf.report_sections = {}
-        dashboard = MagicMock()
-        chunk = {
-            "analyst_reports": {"market": "FROM STRUCTURED"},
-            # flat deliberately absent — canonical read must still work
-        }
-        run_impl._update_analyst_statuses(
-            msg_buf, dashboard, chunk,
-            selected_keys=["market"], selected_set={"market"},
-        )
-        msg_buf.update_report_section.assert_any_call("market_report", "FROM STRUCTURED")
+    The structured-first chunk reads are now covered by
+    tests/test_execution_events.py against ChunkEventTranslator (the single
+    place allowed to interpret chunks).
+   """
 
-    def test_update_analyst_statuses_falls_back_to_flat(self):
-        from cli.analyze import run_impl
+    def test_run_impl_no_longer_reads_graph_chunks(self):
+        """The UI adapter must not interpret raw chunk fields."""
+        import ast
+        import pathlib
 
-        msg_buf = MagicMock()
-        msg_buf.report_sections = {}
-        dashboard = MagicMock()
-        chunk = {"market_report": "FROM FLAT"}  # legacy shape only
-        run_impl._update_analyst_statuses(
-            msg_buf, dashboard, chunk,
-            selected_keys=["market"], selected_set={"market"},
-        )
-        msg_buf.update_report_section.assert_any_call("market_report", "FROM FLAT")
-
-    def test_handle_debate_states_reads_structured_blocks(self):
-        from cli.analyze import run_impl
-
-        msg_buf = MagicMock()
-        msg_buf.agent_status = {}
-        dashboard = MagicMock()
-        chunk = {
-            "debate_blocks": {"investment": {"bull_history": "BULL", "bear_history": "", "judge_decision": "J"}},
-            "decision_blocks": {"trader_plan": "PLAN"},
-        }
-        run_impl._handle_debate_states(msg_buf, dashboard, chunk)
-        msg_buf.update_report_section.assert_any_call("investment_plan", "### Bull Researcher\nBULL")
-        msg_buf.update_report_section.assert_any_call("trader_investment_plan", "PLAN")
-        dashboard.add_event.assert_any_call("Research complete, Trader started")
+        source = pathlib.Path("cli/analyze/run_impl.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        banned = {"analyst_reports", "debate_blocks", "decision_blocks", "messages"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                assert node.value not in banned, (
+                    f"run_impl interprets raw chunk field: {node.value!r} — "
+                    "chunk interpretation belongs to ChunkEventTranslator"
+                )

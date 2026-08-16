@@ -45,29 +45,18 @@ def analyze_cmd(
         analyze_run()
         return
 
-    # Non-interactive mode: assemble defaults and execute directly.
+    # Non-interactive mode: typed request with defaults, executed directly.
     from datetime import datetime
 
     from cli.analyze.run_impl import run_analysis
-    from cli.models import AnalystType
-    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.application import AnalysisRequest
     from tradingagents.ui.summary import print_summary
 
-    config = {
-        "ticker": ticker,
-        "date": date or datetime.now().strftime("%Y-%m-%d"),
-        "output_language": "English",
-        "analysts": list(AnalystType),
-        "research_depth": 1,
-        "llm_provider": DEFAULT_CONFIG["llm_provider"],
-        "backend_url": DEFAULT_CONFIG.get("backend_url"),
-        "shallow_thinking_model": DEFAULT_CONFIG["quick_think_llm"],
-        "deep_thinking_model": DEFAULT_CONFIG["deep_think_llm"],
-        "thinking_level": None,
-        "reasoning_effort": None,
-        "anthropic_effort": None,
-    }
-    result = run_analysis(config)
+    request = AnalysisRequest.default_for(
+        ticker,
+        trade_date=date or datetime.now().strftime("%Y-%m-%d"),
+    )
+    result = run_analysis(request)
     print_summary(result, module_type="analyzer")
 
 
