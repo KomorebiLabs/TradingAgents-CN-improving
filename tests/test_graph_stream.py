@@ -31,7 +31,7 @@ def _make_stub_graph(chunks=None, error=None):
     graph._create_fallback_state.side_effect = (
         lambda init, msg: {**init, "final_trade_decision": f"System error during analysis: {msg}"}
     )
-    graph._synchronize_structured_state.side_effect = lambda state: dict(state)
+    graph._ensure_structured_state.side_effect = lambda state: dict(state)
     graph.process_signal.return_value = "BUY"
     return graph
 

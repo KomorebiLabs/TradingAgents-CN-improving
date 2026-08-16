@@ -98,7 +98,7 @@ class _AnalysisStream:
                 f"Graph execution produced no state for {self._company}"
             )
 
-        final_state = graph._synchronize_structured_state(last_state)
+        final_state = graph._ensure_structured_state(last_state)
         graph.curr_state = final_state
         graph._log_state(self._trade_date, final_state)
         try:
@@ -121,6 +121,7 @@ from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
     RiskDebateState,
+    STATE_SCHEMA_VERSION,
 )
 from tradingagents.dataflows.config import set_config
 
@@ -357,8 +358,20 @@ class TradingAgentsGraph:
         )
         return initial_state
 
-    def _synchronize_structured_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Mirror legacy top-level fields into structured state blocks."""
+    def _ensure_structured_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """Reconcile canonical structured blocks with legacy flat fields.
+
+        Canonical policy (agent_states.Canonical State Policy, schema v2):
+        structured blocks win on conflict; flat fields are filled from
+        structured for legacy readers (graph/setup.py routers,
+        graph/reflection.py). Structured blocks are filled from flat only
+        when missing (legacy-only writers, e.g. _create_fallback_state).
+
+        Historical note: this method was ``_synchronize_structured_state``
+        and mirrored FLAT -> structured unconditionally, which would wipe
+        structured-only writes. That direction is retired.
+        """
+        state.setdefault("schema_version", STATE_SCHEMA_VERSION)
         state.setdefault("screener_context", {})
         state["semantic_prompt_slots"] = validate_semantic_prompt_slots(
             state.get("semantic_prompt_slots")
@@ -393,25 +406,55 @@ class TradingAgentsGraph:
         ticker_info.setdefault("skills", instrument_profile["skills"])
         state["ticker_info"] = ticker_info
 
-        analyst_reports = dict(state.get("analyst_reports", {}))
-        analyst_reports["market"] = state.get("market_report", analyst_reports.get("market", ""))
-        analyst_reports["sentiment"] = state.get("sentiment_report", analyst_reports.get("sentiment", ""))
-        analyst_reports["news"] = state.get("news_report", analyst_reports.get("news", ""))
-        analyst_reports["fundamentals"] = state.get("fundamentals_report", analyst_reports.get("fundamentals", ""))
+        # -- Analyst reports: structured (analyst_reports) is canonical ------
+        report_pairs = (
+            ("market", "market_report"),
+            ("sentiment", "sentiment_report"),
+            ("news", "news_report"),
+            ("fundamentals", "fundamentals_report"),
+        )
+        analyst_reports = dict(state.get("analyst_reports") or {})
+        for structured_key, flat_key in report_pairs:
+            structured_val = analyst_reports.get(structured_key, "")
+            flat_val = state.get(flat_key, "")
+            if structured_val:
+                state[flat_key] = structured_val
+            elif flat_val:
+                analyst_reports[structured_key] = flat_val
         state["analyst_reports"] = analyst_reports
 
-        debate_blocks = dict(state.get("debate_blocks", {}))
-        debate_blocks["investment"] = state.get("investment_debate_state", debate_blocks.get("investment", {}))
-        debate_blocks["risk"] = state.get("risk_debate_state", debate_blocks.get("risk", {}))
-        state["debate_blocks"] = debate_blocks
-
-        decision_blocks = dict(state.get("decision_blocks", {}))
-        decision_blocks["investment_plan"] = state.get("investment_plan", decision_blocks.get("investment_plan", ""))
-        decision_blocks["trader_plan"] = state.get("trader_investment_plan", decision_blocks.get("trader_plan", ""))
-        decision_blocks["final_trade_decision"] = state.get(
-            "final_trade_decision",
-            decision_blocks.get("final_trade_decision", ""),
+        # -- Debate states: keep flat and structured as the SAME object ----
+        debate_blocks = dict(state.get("debate_blocks") or {})
+        investment_debate = (
+            state.get("investment_debate_state")
+            or debate_blocks.get("investment")
+            or {}
         )
+        risk_debate = (
+            state.get("risk_debate_state")
+            or debate_blocks.get("risk")
+            or {}
+        )
+        debate_blocks["investment"] = investment_debate
+        debate_blocks["risk"] = risk_debate
+        state["debate_blocks"] = debate_blocks
+        state["investment_debate_state"] = investment_debate
+        state["risk_debate_state"] = risk_debate
+
+        # -- Decisions: structured (decision_blocks) is canonical -----------
+        decision_pairs = (
+            ("investment_plan", "investment_plan"),
+            ("trader_plan", "trader_investment_plan"),
+            ("final_trade_decision", "final_trade_decision"),
+        )
+        decision_blocks = dict(state.get("decision_blocks") or {})
+        for structured_key, flat_key in decision_pairs:
+            structured_val = decision_blocks.get(structured_key, "")
+            flat_val = state.get(flat_key, "")
+            if structured_val:
+                state[flat_key] = structured_val
+            elif flat_val:
+                decision_blocks[structured_key] = flat_val
         state["decision_blocks"] = decision_blocks
 
         orchestration = dict(state.get("orchestration", {}))
@@ -439,20 +482,29 @@ class TradingAgentsGraph:
         return state
 
     def _log_state(self, trade_date, final_state):
-        """Log the final state to a JSON file."""
+        """Log the final state to a JSON file (canonical structured shape).
+
+        Structured blocks are logged once as the source of truth; the flat
+        report/debate duplicates of the legacy log format were dropped
+        (zero code readers — the log is human-facing only). The flat
+        ``final_trade_decision`` is kept as a quick-grep convenience key.
+        """
         orchestration = final_state.get("orchestration", {})
         ticker_info = final_state.get("ticker_info", {})
         route_summary = self.reflector.get_route_summary(final_state)
+        decision_blocks = final_state.get("decision_blocks", {})
 
         self.log_states_dict[str(trade_date)] = {
-            "company_of_interest": final_state["company_of_interest"],
-            "trade_date": final_state["trade_date"],
+            "schema_version": final_state.get("schema_version", 1),
+            "company_of_interest": final_state.get("company_of_interest", ""),
+            "trade_date": final_state.get("trade_date", ""),
             "screener_context": final_state.get("screener_context", {}),
             "semantic_prompt_slots": final_state.get("semantic_prompt_slots", {}),
             "route_decision": final_state.get("route_decision", {}),
-            "ticker_info": final_state.get("ticker_info", {}),
+            "ticker_info": ticker_info,
             "analyst_reports": final_state.get("analyst_reports", {}),
-            "decision_blocks": final_state.get("decision_blocks", {}),
+            "debate_blocks": final_state.get("debate_blocks", {}),
+            "decision_blocks": decision_blocks,
             "orchestration": orchestration,
             "orchestration_summary": {
                 "completed": orchestration.get("completed", False),
@@ -470,32 +522,8 @@ class TradingAgentsGraph:
             },
             "route_summary": route_summary,
             "event_trail": orchestration.get("event_trail", []),
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
-            "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"]["bull_history"],
-                "bear_history": final_state["investment_debate_state"]["bear_history"],
-                "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
-                    "current_response"
-                ],
-                "judge_decision": final_state["investment_debate_state"][
-                    "judge_decision"
-                ],
-                "latest_speaker": final_state["investment_debate_state"].get("latest_speaker", ""),
-            },
-            "trader_investment_decision": final_state["trader_investment_plan"],
-            "risk_debate_state": {
-                "aggressive_history": final_state["risk_debate_state"]["aggressive_history"],
-                "conservative_history": final_state["risk_debate_state"]["conservative_history"],
-                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
-                "history": final_state["risk_debate_state"]["history"],
-                "judge_decision": final_state["risk_debate_state"]["judge_decision"],
-            },
-            "investment_plan": final_state["investment_plan"],
-            "final_trade_decision": final_state["final_trade_decision"],
+            # Legacy quick-access key (identical to decision_blocks.final_trade_decision)
+            "final_trade_decision": decision_blocks.get("final_trade_decision", ""),
         }
 
         # Save to file

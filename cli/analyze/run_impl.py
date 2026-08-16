@@ -276,17 +276,24 @@ def run_analysis(config: dict) -> dict:
 def _update_analyst_statuses(
     msg_buf, dashboard, chunk, selected_keys, selected_set
 ) -> None:
-    """Update analyst statuses based on accumulated report state."""
+    """Update analyst statuses based on accumulated report state.
+
+    Reads the canonical ``analyst_reports`` block first, with the legacy
+    flat fields (ANALYST_REPORT_MAP) as fallback. The map keys remain the
+    report file names written by msg_buf.update_report_section().
+    """
     found_active = False
+    structured_reports = chunk.get("analyst_reports") or {}
     for key in ANALYST_ORDER:
         if key not in selected_set:
             continue
         agent = ANALYST_AGENT_NAMES[key]
         report_key = ANALYST_REPORT_MAP[key]
 
-        # Capture new report
-        if report_key in chunk and chunk[report_key]:
-            msg_buf.update_report_section(report_key, chunk[report_key])
+        # Capture new report (canonical structured first, legacy flat fallback)
+        report_value = structured_reports.get(key) or chunk.get(report_key)
+        if report_value:
+            msg_buf.update_report_section(report_key, report_value)
 
         has_report = bool(msg_buf.report_sections.get(report_key))
         if has_report:
@@ -310,10 +317,18 @@ def _update_analyst_statuses(
 
 
 def _handle_debate_states(msg_buf, dashboard, chunk) -> None:
-    """Handle investment_debate_state, trader_investment_plan, and risk_debate_state."""
+    """Update dashboard from debate/trader state in a chunk.
+
+    Reads canonical structured blocks first (debate_blocks / decision_blocks),
+    with legacy flat fields as fallback. Report section keys stay flat-named
+    for file naming stability.
+    """
+    debate_blocks = chunk.get("debate_blocks") or {}
+    decision_blocks = chunk.get("decision_blocks") or {}
+
     # Investment debate
-    if "investment_debate_state" in chunk:
-        debate = chunk["investment_debate_state"]
+    debate = debate_blocks.get("investment") or chunk.get("investment_debate_state")
+    if debate:
         bull = debate.get("bull_history", "").strip()
         bear = debate.get("bear_history", "").strip()
         judge = debate.get("judge_decision", "").strip()
@@ -336,8 +351,9 @@ def _handle_debate_states(msg_buf, dashboard, chunk) -> None:
             dashboard.update_metrics(current_stage="Stage C")
 
     # Trader
-    if "trader_investment_plan" in chunk and chunk["trader_investment_plan"]:
-        msg_buf.update_report_section("trader_investment_plan", chunk["trader_investment_plan"])
+    trader_plan = decision_blocks.get("trader_plan") or chunk.get("trader_investment_plan")
+    if trader_plan:
+        msg_buf.update_report_section("trader_investment_plan", trader_plan)
         if msg_buf.agent_status.get("Trader") != "completed":
             msg_buf.update_agent_status("Trader", "completed")
             dashboard.update_agent_status("Trader", "completed")
@@ -346,8 +362,8 @@ def _handle_debate_states(msg_buf, dashboard, chunk) -> None:
             dashboard.add_event("Trader: plan complete, Risk team started")
 
     # Risk debate
-    if "risk_debate_state" in chunk:
-        risk = chunk["risk_debate_state"]
+    risk = debate_blocks.get("risk") or chunk.get("risk_debate_state")
+    if risk:
         for field, agent in [
             ("aggressive_history", "Aggressive Analyst"),
             ("conservative_history", "Conservative Analyst"),
