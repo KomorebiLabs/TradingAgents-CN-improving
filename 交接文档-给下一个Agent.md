@@ -10,17 +10,15 @@
 
 ```bash
 cd "D:\cursor\HarmonyOS\Github project\TradingAgents-main"
-venv/Scripts/python.exe -m pytest tests/ -q     # 预期：313 passed，~35 秒
+venv/Scripts/python.exe -m pytest tests/ -q     # 预期：385 passed，~30 秒
 ```
 
-- **测试**：313 个用例 / 12 个文件，全部离线（无网络无 LLM），覆盖：导入无副作用、版本单一源、状态 canonical 契约、供应商路由、数据端口、AST 依赖图无环、解析器纯函数、执行事件协议、图拓扑分解形态。
+- **测试**：385 个用例 / 18 个测试文件，全部离线（无网络无 LLM），覆盖：导入无副作用、版本单一源、状态 canonical 契约、供应商路由、数据端口、AST 依赖图无环、解析器纯函数、执行事件协议、图拓扑分解形态、merger golden/parity、reflection stub-LLM parity、memory parity。
 - **架构分层**（依赖只能向左）：
   `cli/`（UI）→ `tradingagents/application/`（契约+事件+服务）→ `graph/`+`agents/`（领域）→ `ports/`（端口）→ `dataflows/`+`screener/vendors/`（基础设施）
-- **大文件榜现状**（原 6 个千行级 → 剩 3 个）：
-  - `graph/reflection.py` **1302**（B组⑤未做）
-  - `agents/utils/memory.py` **1124**（B组⑥未做）
-  - `screener/merger.py` **1050**（B组③未做，最重要）
-  - 其余最大：`screener/strategies/policy.py` 957、`dataflows/y_finance.py` 883
+- **大文件榜现状**：B 组六大千行文件已**全部拆分完成**（merger / reflection / memory 由交接后的第 8-10 轮完成），当前不再有千行单文件，剩余最大单文件为：
+  - `screener/strategies/policy.py` 957、`dataflows/y_finance.py` 883（不在拆分需求内）
+  - 拆分产物：`screener/merger/`（9 文件）、`graph/reflection/`（5 文件）、`agents/utils/memory/`（6 文件）
 - **硬性不变量**（有测试看守，改坏会红）：模块级 import 图无环；dataflows 不得 import screener；`cli/analyze/run_impl.py` 不得出现 chunk 字段名；版本号只在 pyproject；`AnalysisResult.to_dict()` 的 10 个键不得漂移；`setup_graph` ≤40 行且不内联布线。
 
 ## 二、七轮施工已完成的内容（按提交顺序）
@@ -34,12 +32,15 @@ venv/Scripts/python.exe -m pytest tests/ -q     # 预期：313 passed，~35 秒
 | 5 | 契约层：`AnalysisRequest/Result` + `AnalysisService` + 9 种执行事件 | `application/` 包 |
 | 6 | B组①：`akshare_interface` 1619→41 门面 | `dataflows/akshare/` 七模块 |
 | 7 | B组②④：`agent_utils` 944→37 门面；`setup_graph` 471→38 行 | `agents/utils/tools/` 四模块 + 8 个阶段方法 |
+| 8 | 任务 A：`merger.py` 1050 → `screener/merger/` 包（9 模块） | golden characterization 17 + legacy-parity 8 |
+| 9 | 任务 B：`reflection.py` 1302 → `graph/reflection/` 包（5 模块） | stub-LLM parity 9 |
+| 10 | 任务 C：`memory.py` 1124 → `agents/utils/memory/` 包（6 模块） | parity 18 |
 
-详细 diff 说明见 `屎山报告-4` 对应"加更"章节。**注意：第 6、7 轮可能尚未提交**——开工前先 `git status` + `git log --oneline -5` 核对，若有未提交内容先让用户按报告 4 加更五/六末尾的命令提交。
+详细 diff 说明见 `屎山报告-4` 对应"加更"章节。交接后的 **第 8-10 轮**（merger / reflection / memory 拆分）已在 `refactor/merger-pipeline` 分支依次提交，对应测试见 `tests/test_merger_golden.py`、`tests/test_merger_legacy_parity.py`、`tests/test_reflection_parity.py`、`tests/test_memory_parity.py`。
 
 ## 三、待办任务清单（按优先级，含施工指南）
 
-### 任务 A（B组③）：`screener/merger.py` 1050 行 → 纯函数管道 ⭐ 最重要
+### 任务 A（B组③）：`screener/merger.py` 1050 行 → 纯函数管道 ⭐ ✅ 已完成（第 8 轮）
 
 **为什么**：这是加新筛选规则的必经之路；路线图 4.1 的原始要求是 `normalize_cards → aggregate_strategy_scores → evaluate_conflicts → apply_hard_filters → apply_semantic_policy → diversify_by_sector → rank_candidates → build_decision_explanations` 八段管道，每段输入输出不可变。
 
@@ -50,7 +51,7 @@ venv/Scripts/python.exe -m pytest tests/ -q     # 预期：313 passed，~35 秒
 4. **golden fixtures 是本任务的验收核心**（路线图 4.4）：造 10–20 组 `SignalCard` 输入 fixture（读 `screener/models.py` 了解 SignalCard 字段），冻结：冲突规则、hard drop reason、行业分散、policy focus、score 排序、解释文案 payload。先写 characterization 测试冻结现状行为，再动结构。
 5. 风险：业务逻辑密集，**不要**在拆分的同时"顺手修 bug"——发现可疑逻辑记下来单独汇报。
 
-### 任务 B（B组⑤）：`graph/reflection.py` 1302 行 → Reflector 拆分
+### 任务 B（B组⑤）：`graph/reflection.py` 1302 行 → Reflector 拆分 ✅ 已完成（第 9 轮）
 
 **为什么**：Reflector 一个类混了 LLM 反思（reflect_bull/bear/trader/invest_judge/portfolio_manager）、路由统计（get_route_summary/get_route_statistics）、结论摘要（generate_conclusion_summary）。路线图 2.5 要求拆为 MemoryStore / MemoryRetriever / ReflectionService / RouteAnalytics / ConclusionRepository。
 
@@ -59,15 +60,15 @@ venv/Scripts/python.exe -m pytest tests/ -q     # 预期：313 passed，~35 秒
 2. 建议拆法：`graph/reflection/` 包或同文件先拆方法簇 → `ReflectionService`（LLM 反思）、`route_analytics.py`（纯函数，get_route_summary 系列，**先拆这个**，它无 LLM 依赖可立即加测试）、`conclusion.py`（结论摘要）。
 3. 注意：`reflect_and_remember` 里那个 `except Exception: pass`（记忆持久化静默吞错）——拆分时保留行为但记录到"待治理异常清单"。
 
-### 任务 C（B组⑥）：`agents/utils/memory.py` 1124 行 → StructuredMemory 拆分
+### 任务 C（B组⑥）：`agents/utils/memory.py` 1124 行 → StructuredMemory 拆分 ✅ 已完成（第 10 轮）
 
 **施工指南**：类内混了存储、BM25 检索、过滤、统计、趋势分析。建议按 `memory/` 包拆 `store.py`（CRUD+持久化）、`retrieval.py`（BM25+过滤）、`analytics.py`（统计+趋势）。调用面：`trading_graph.py`（6 个记忆实例）、`memory_manager.py`。BM25 是本地实现，**保留**（报告 2 §4 明确不引入向量库）。
 
-### 任务 D（小件，建议先做）：CI 流水线
+### 任务 D（小件，建议先做）：CI 流水线 ✅ 已完成（提交 e6eaa7c，`.github/workflows/ci.yml`）
 
 `.github/workflows/ci.yml`：push/PR 触发 `pip install -e . && pip install pytest && pytest -q`。纯新增文件，零风险，立刻让 313 个测试从"本机跑"变"每次 push 自动跑"。用户是 GitHub 仓库，直接可加。
 
-### 任务 E（小件）：README 清理
+### 任务 E（小件）：README 清理 ✅ 已完成（README.md 去除上游英文冗余、克隆链接改 KomorebiLabs、目录树更新；README_TECH.md 路径引用修正 + 2026-08 拆分附录；本交接文档已同步刷新）
 
 README.md 混着上游英文 README、克隆链接指向上游、README_TECH.md 的精确数字已因拆分失真（data_access 行数、akshare_interface 行数等）。对照 `屎山报告-4` 的行数表更新。
 
@@ -83,6 +84,20 @@ README.md 混着上游英文 README、克隆链接指向上游、README_TECH.md 
 
 - confidence score 真实实现（现在 AnalysisResult.confidence=None，UI 显示 N/A）——入口在 `application/service.py` 的 result 装配处，需要从 final_state 提取或让 Portfolio Manager 产出。
 - 状态 v2.1 里程碑：节点停写平铺字段（改 `state_helpers.sync_*` 系列即可，全节点已走这些 helper）。
+
+### 任务 I（清理，用户确认后执行）：删除三个 `_legacy.py` 遗留文件
+
+merger / reflection / memory 拆分后原单文件保留为 `*_legacy.py`（供 parity 验证）。等价性已被 `tests/test_merger_legacy_parity.py`（8 用例）、`tests/test_reflection_parity.py`（9 用例）、`tests/test_memory_parity.py`（18 用例）钉死。用户确认后：
+
+```powershell
+git rm tradingagents/screener/merger_legacy.py tradingagents/graph/reflection_legacy.py tradingagents/agents/utils/memory_legacy.py
+# 同时删除对应的 *_parity.py 测试（它们 import legacy）
+git rm tests/test_merger_legacy_parity.py tests/test_reflection_parity.py tests/test_memory_parity.py
+```
+
+删除后跑 `pytest -q`，预期剩余测试仍全绿（golden/unit 测试不依赖 legacy）。
+
+> 附带：`tradingagents/commands/` 与 `tradingagents/screener/cli/` 在磁盘上只剩 `__pycache__` 空壳（git 已无跟踪源码），可随此轮一并手动清理目录。
 
 ## 四、已验证的施工方法论（照抄即可，七轮实战沉淀）
 
