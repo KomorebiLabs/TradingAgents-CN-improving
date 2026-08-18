@@ -319,13 +319,13 @@ class DeepAnalyzer:
             try:
                 if int(prompt_slots.get("policy_multi_concept_overlap_count", 0)) >= 2:
                     analyst_focus.append("concept_overlap")
-            except Exception:
+            except (TypeError, ValueError):  # non-numeric slot value — skip this focus
                 pass
         if prompt_slots.get("capital_heat_quality_gap_score", "N/A") not in {"N/A", None}:
             try:
                 if float(prompt_slots.get("capital_heat_quality_gap_score", 0.0)) >= 22:
                     analyst_focus.append("heat_quality_gap")
-            except Exception:
+            except (TypeError, ValueError):  # non-numeric slot value — skip this focus
                 pass
         if conflict_tier in {"high", "severe"}:
             analyst_focus.append("conflict_resolution")
@@ -404,7 +404,7 @@ class DeepAnalyzer:
         try:
             if float(heat_gap) >= 22 and "social" in selected:
                 selected = [name for name in selected if name != "social"] + ["social"]
-        except Exception:
+        except (TypeError, ValueError):  # non-numeric heat-gap value — keep original order
             pass
         return selected or list(requested_analysts)
 

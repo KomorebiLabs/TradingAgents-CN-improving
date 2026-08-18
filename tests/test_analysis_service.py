@@ -68,7 +68,13 @@ class TestContracts:
             "llm_calls", "tool_calls", "tokens_in", "tokens_out",
             "report_path", "final_state",
         }
-        assert payload["confidence"] is None  # never faked
+        assert payload["confidence"] is None  # default stays None — never faked
+
+    def test_result_confidence_pass_through_intact(self):
+        result = AnalysisResult(
+            ticker="600519", trade_date="2026-08-16", decision="BUY", confidence=72
+        )
+        assert result.to_dict()["confidence"] == 72
 
 
 def _stub_graph(chunks):

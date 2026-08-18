@@ -85,9 +85,9 @@ README.md 混着上游英文 README、克隆链接指向上游、README_TECH.md 
 - confidence score 真实实现（现在 AnalysisResult.confidence=None，UI 显示 N/A）——入口在 `application/service.py` 的 result 装配处，需要从 final_state 提取或让 Portfolio Manager 产出。
 - 状态 v2.1 里程碑：节点停写平铺字段（改 `state_helpers.sync_*` 系列即可，全节点已走这些 helper）。
 
-### 任务 I（清理，用户确认后执行）：删除三个 `_legacy.py` 遗留文件
+### 任务 I（清理）：删除三个 `_legacy.py` 遗留文件 ✅ 已完成（2026-08）
 
-merger / reflection / memory 拆分后原单文件保留为 `*_legacy.py`（供 parity 验证）。等价性已被 `tests/test_merger_legacy_parity.py`（8 用例）、`tests/test_reflection_parity.py`（9 用例）、`tests/test_memory_parity.py`（18 用例）钉死。用户确认后：
+merger / reflection / memory 拆分后原单文件保留为 `*_legacy.py`（供 parity 验证），等价性由 35 个 parity 用例钉死。**已执行删除（2026-08）**：
 
 ```powershell
 git rm tradingagents/screener/merger_legacy.py tradingagents/graph/reflection_legacy.py tradingagents/agents/utils/memory_legacy.py
@@ -95,7 +95,7 @@ git rm tradingagents/screener/merger_legacy.py tradingagents/graph/reflection_le
 git rm tests/test_merger_legacy_parity.py tests/test_reflection_parity.py tests/test_memory_parity.py
 ```
 
-删除后跑 `pytest -q`，预期剩余测试仍全绿（golden/unit 测试不依赖 legacy）。
+删除后验证：`pytest -q` → **347 passed**（较删除前 385 少 8+9+18 个 parity 用例 + 3 个 legacy 编译覆盖用例），`grep *_legacy` 零命中，全绿。
 
 > 附带：`tradingagents/commands/` 与 `tradingagents/screener/cli/` 在磁盘上只剩 `__pycache__` 空壳（git 已无跟踪源码），可随此轮一并手动清理目录。
 

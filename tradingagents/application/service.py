@@ -16,7 +16,11 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from tradingagents.application.contracts import AnalysisRequest, AnalysisResult
+from tradingagents.application.contracts import (
+    AnalysisRequest,
+    AnalysisResult,
+    extract_confidence_from_state,
+)
 from tradingagents.application.events import (
     AnalysisCompleted,
     AnalysisEvent,
@@ -74,7 +78,7 @@ class AnalysisEventStream:
             ticker=self.request.ticker,
             trade_date=self.request.trade_date,
             decision=decision,
-            confidence=None,  # TODO: not implemented — surfaced as N/A, never faked
+            confidence=extract_confidence_from_state(final_state),
             elapsed_time=time.time() - self._start_time,
             llm_calls=stats.get("llm_calls", 0),
             tool_calls=stats.get("tool_calls", 0),

@@ -59,6 +59,7 @@ def print_analyzer_summary(result: Dict[str, Any]) -> None:
     if confidence is None:
         summary_table.add_row("Confidence", "[dim]N/A (pending feature)[/dim]")
     else:
+        confidence = int(confidence)
         conf_bar = "█" * (confidence // 10) + "░" * (10 - confidence // 10)
         conf_color = "green" if confidence >= 70 else "yellow" if confidence >= 40 else "red"
         summary_table.add_row("Confidence", f"[{conf_color}]{conf_bar}[/{conf_color}] {confidence}%")
