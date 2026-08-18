@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +10,8 @@ import json
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.screener.config import SCREENER_UNIVERSE
 from tradingagents.ui.screener_console import console
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from tradingagents.screener.data_access import ScreenerDataAccess
@@ -134,8 +137,8 @@ def _fetch_constituents_for_indexes(
         try:
             da = _get_da()
             df = da.fetch_index_constituents(idx_code)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to fetch index constituents for %s: %s", idx_code, exc)
 
         if df is None or getattr(df, "empty", True):
             continue
@@ -426,7 +429,8 @@ def _fetch_concept_constituents(
                 break
 
         return sorted(constituents)
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to resolve concept constituents: %s", exc)
         return []
 
 

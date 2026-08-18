@@ -1,5 +1,6 @@
 # TradingAgents/graph/trading_graph.py
 
+import logging
 import os
 from copy import deepcopy
 from pathlib import Path
@@ -10,6 +11,8 @@ from tradingagents.agents.utils.memory_manager import (
     save_conclusion_summary,
     load_historical_conclusion,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class GraphExecutionError(Exception):
@@ -290,7 +293,8 @@ class TradingAgentsGraph:
         def _safe_tools(analyst_type: str):
             try:
                 return get_tools_for_analyst(analyst_type, instrument_profile["symbol"], self.config)
-            except Exception:
+            except Exception as exc:  # tool assembly must not kill the graph, but the cause must be visible
+                logger.warning("Tool assembly failed for analyst %s: %s", analyst_type, exc)
                 return []
         return {
             "market": ToolNode(_safe_tools("market")),
