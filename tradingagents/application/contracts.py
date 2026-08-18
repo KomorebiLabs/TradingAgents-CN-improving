@@ -8,6 +8,7 @@ so the migration is contract-first without breaking any caller.
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -17,6 +18,55 @@ from typing import Any, Dict, List, Optional
 from tradingagents.default_config import DEFAULT_CONFIG
 
 ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
+
+# Portfolio/Research Manager write `Confidence: N/100` inside <decision> when
+# enable_confidence_score is on (see agents/managers/{research_manager,portfolio_manager}.py).
+_CONFIDENCE_RE = re.compile(r"[Cc]onfidence\s*[:：]\s*(\d{1,3})(?:\s*/\s*100)?")
+
+# Where the final <decision> text lives in AgentState (structured + flat mirrors).
+_CONFIDENCE_TEXT_PATHS = (
+    ("decision_blocks", "final_trade_decision"),
+    "final_trade_decision",
+    ("risk_debate_state", "judge_decision"),
+    ("decision_blocks", "risk_decision"),
+)
+
+
+def extract_confidence_from_state(final_state: Dict[str, Any]) -> Optional[int]:
+    """Extract the real final-decision confidence (0-100) from an AgentState.
+
+    Priority:
+      1. textual ``Confidence: N/100`` emitted by Portfolio/Research Manager
+         when ``enable_confidence_score`` is enabled (searched across the
+         decision texts above);
+      2. numeric ``signal_card.initial_confidence`` from screener context, when
+         present (fallback floor, not a fake);
+      3. ``None`` — never fabricate a value.
+
+    Returns an int in [0, 100] (UI renders an int progress bar), or ``None``.
+    """
+    for path in _CONFIDENCE_TEXT_PATHS:
+        if isinstance(path, tuple):
+            node = final_state.get(path[0])
+            value = (node or {}).get(path[1]) if isinstance(node, dict) else None
+        else:
+            value = final_state.get(path)
+        if isinstance(value, str):
+            match = _CONFIDENCE_RE.search(value)
+            if match:
+                raw = int(match.group(1))
+                return min(100, max(0, raw))
+
+    screener = final_state.get("screener_context") or {}
+    route_decision = screener.get("route_decision") or {}
+    signal_card = route_decision.get("signal_card")
+    if isinstance(signal_card, dict):
+        initial = signal_card.get("initial_confidence")
+        if isinstance(initial, (int, float)) and not isinstance(initial, bool):
+            clipped = min(100, max(0, int(initial)))
+            return clipped
+
+    return None
 
 
 @dataclass(frozen=True)
@@ -96,7 +146,10 @@ class AnalysisRequest:
 class AnalysisResult:
     """One deep-analysis run outcome (typed replacement for the result dict).
 
-    ``confidence`` stays ``None`` until actually implemented — never a faked 0.
+    ``confidence`` is populated by ``extract_confidence_from_state`` at the
+    service assembly point: real value when available (LLM-emitted
+    ``Confidence: N/100`` or screener initial_confidence), else ``None`` —
+    never a faked 0.
     """
 
     ticker: str
