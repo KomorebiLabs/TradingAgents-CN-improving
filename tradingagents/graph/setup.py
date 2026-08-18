@@ -319,6 +319,20 @@ def create_risk_finalize_node():
     return finalize_node
 
 
+ORCHESTRATION_ROUTE_TARGETS = {
+    "Route Research Phase": "Route Research Phase",
+    "Bull Researcher": "Bull Researcher",
+    "Trader": "Trader",
+    "Aggressive Analyst": "Aggressive Analyst",
+    "Finalize Risk Debate": "Finalize Risk Debate",
+    "Portfolio Manager": "Portfolio Manager",
+    "Summarize Analyst Phase": "Summarize Analyst Phase",
+    "Summarize Research Phase": "Summarize Research Phase",
+    "Summarize Trader Phase": "Summarize Trader Phase",
+    "Summarize Risk Phase": "Summarize Risk Phase",
+}
+
+
 class GraphSetup:
     """Handles the setup and configuration of the agent graph."""
     # 【职责】图构建器 - 负责将所有 Agent 连接成完整的 DAG
@@ -359,15 +373,13 @@ class GraphSetup:
     ):
         """Set up and compile the agent workflow graph.
 
-        Args:
-            selected_analysts (list): List of analyst types to include. Options are:
-                - "market": Market analyst
-                - "social": Social media analyst
-                - "news": News analyst
-                - "fundamentals": Fundamentals analyst
-        """
-        # 【图构建入口】这是整个 DAG 的核心方法
+        Thin orchestrator since the Phase-4 B-group split: node creation and
+        per-phase wiring live in the _create_*/_add_*/_wire_* methods below.
 
+        Args:
+            selected_analysts (list): analyst types to include
+                ("market" / "social" / "news" / "fundamentals").
+        """
         # ─────────────────────────────────────────────────────────────────
         # 第一步：校验 - 确保至少选择一个分析师
         # ─────────────────────────────────────────────────────────────────
@@ -376,11 +388,19 @@ class GraphSetup:
 
         self.selected_analysts = list(selected_analysts)
 
-        # ─────────────────────────────────────────────────────────────────
-        # 第二步：创建分析师节点（Analyst Team）
-        #   注意：这是一个可配置的模块，用户可以选择启用哪些分析师
-        # ─────────────────────────────────────────────────────────────────
+        workflow = StateGraph(AgentState)
+        agents = self._create_agent_nodes()
+        self._add_orchestration_nodes(workflow)
+        analyst_nodes, delete_nodes, tool_nodes = self._create_analyst_nodes(selected_analysts)
+        self._add_nodes_to_graph(workflow, analyst_nodes, delete_nodes, tool_nodes, agents)
+        self._wire_analyst_chain(workflow, selected_analysts)
+        self._wire_research_debate(workflow)
+        self._wire_orchestration_routing(workflow)
+        self._wire_risk_debate(workflow)
+        return workflow.compile()
 
+    def _create_analyst_nodes(self, selected_analysts):
+        """Build the per-analyst node/delete/tool dicts for selected analysts."""
         # 【初始化三个字典】
         analyst_nodes = {}    # 分析师节点
         delete_nodes = {}     # 消息清理节点（清除中间消息，避免状态膨胀）
@@ -418,13 +438,10 @@ class GraphSetup:
             delete_nodes["fundamentals"] = create_msg_delete()
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
 
-        # ─────────────────────────────────────────────────────────────────
-        # 第三步：创建研究团队节点（Research Team）
-        #   • Bull Researcher: 看多派研究员（有记忆）
-        #   • Bear Researcher: 看空派研究员（有记忆）
-        #   • Research Manager: 研究经理（深度思考，裁决多空）
-        # ─────────────────────────────────────────────────────────────────
+        return analyst_nodes, delete_nodes, tool_nodes
 
+    def _create_agent_nodes(self):
+        """Build research / trading / risk team nodes (memory + skill injected)."""
         # Create researcher and manager nodes
         bull_researcher_node = create_bull_researcher(
             self.quick_thinking_llm, self.bull_memory,
@@ -469,16 +486,19 @@ class GraphSetup:
             skill_injector=self._skill_injector,
         )
 
-        # ─────────────────────────────────────────────────────────────────
-        # 第五步：构建 DAG - 创建 StateGraph 实例
-        #   【LangGraph 核心概念】
-        #   • StateGraph(AgentState): 基于 AgentState 的状态图
-        #   • workflow.add_node(): 添加节点
-        #   • workflow.add_edge(): 添加普通边（固定跳转）
-        #   • workflow.add_conditional_edges(): 添加条件边（根据状态动态跳转）
-        # ─────────────────────────────────────────────────────────────────
+        return {
+            "bull": bull_researcher_node,
+            "bear": bear_researcher_node,
+            "research_manager": research_manager_node,
+            "trader": trader_node,
+            "aggressive": aggressive_analyst,
+            "neutral": neutral_analyst,
+            "conservative": conservative_analyst,
+            "portfolio_manager": portfolio_manager_node,
+        }
 
-        # Create workflow
+    def _add_orchestration_nodes(self, workflow):
+        """Register the phase routers, risk finalizer and handoff summarizers."""
         workflow = StateGraph(AgentState)
         workflow.add_node("Route Research Phase", create_orchestration_router("analyst", "research"))
         workflow.add_node("Route Trader Phase", create_orchestration_router("research", "trader"))
@@ -490,15 +510,9 @@ class GraphSetup:
         workflow.add_node("Summarize Trader Phase", create_phase_handoff_node("trader", "risk", self.quick_thinking_llm))
         workflow.add_node("Summarize Risk Phase", create_phase_handoff_node("risk", "portfolio", self.quick_thinking_llm))
 
-        # ─────────────────────────────────────────────────────────────────
-        # 第六步：添加节点到图中
-        #   【节点命名规范】
-        #   • Analyst 节点: "Market Analyst", "Social Analyst" 等
-        #   • 工具节点: "tools_market", "tools_social" 等
-        #   • 清理节点: "Msg Clear Market", "Msg Clear Social" 等
-        #   • 辩论节点: "Bull Researcher", "Bear Researcher" 等
-        # ─────────────────────────────────────────────────────────────────
 
+    def _add_nodes_to_graph(self, workflow, analyst_nodes, delete_nodes, tool_nodes, agents):
+        """Register all team nodes onto the workflow."""
         # Add analyst nodes to the graph
         for analyst_type, node in analyst_nodes.items():
             # 分析师节点，如 "Market Analyst"
@@ -510,145 +524,40 @@ class GraphSetup:
             # 工具节点，用于获取外部数据
             workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
 
-        # Add other nodes
-        # 研究团队节点
-        workflow.add_node("Bull Researcher", bull_researcher_node)
-        workflow.add_node("Bear Researcher", bear_researcher_node)
-        workflow.add_node("Research Manager", research_manager_node)
-        # 交易员节点
-        workflow.add_node("Trader", trader_node)
-        # 风险管理层节点
-        workflow.add_node("Aggressive Analyst", aggressive_analyst)
-        workflow.add_node("Neutral Analyst", neutral_analyst)
-        workflow.add_node("Conservative Analyst", conservative_analyst)
-        workflow.add_node("Portfolio Manager", portfolio_manager_node)
+        workflow.add_node("Bull Researcher", agents["bull"])
+        workflow.add_node("Bear Researcher", agents["bear"])
+        workflow.add_node("Research Manager", agents["research_manager"])
+        workflow.add_node("Trader", agents["trader"])
+        workflow.add_node("Aggressive Analyst", agents["aggressive"])
+        workflow.add_node("Neutral Analyst", agents["neutral"])
+        workflow.add_node("Conservative Analyst", agents["conservative"])
+        workflow.add_node("Portfolio Manager", agents["portfolio_manager"])
 
-        # ─────────────────────────────────────────────────────────────────
-        # 第七步：定义边（Edges）- 连接节点
-        # ─────────────────────────────────────────────────────────────────
-
-        # Define edges
-        # 【起点】从 START 到第一个分析师
-        # Start with the first analyst
+    def _wire_analyst_chain(self, workflow, selected_analysts):
+        """START -> analyst chain (tool loops) -> Route Research Phase."""
         first_analyst = selected_analysts[0]
         workflow.add_edge(START, f"{first_analyst.capitalize()} Analyst")
 
-        # 【Analyst 链】按顺序连接各个分析师
-        # Connect analysts in sequence
-
-        # enumerate() 返回 ：(索引, 值) 的元组
-        
         for i, analyst_type in enumerate(selected_analysts):
             current_analyst = f"{analyst_type.capitalize()} Analyst"
             current_tools = f"tools_{analyst_type}"
             current_clear = f"Msg Clear {analyst_type.capitalize()}"
 
-            # 【条件边】分析师 → 工具 或 清理节点
-            # Add conditional edges for current analyst
-            # 判断逻辑：如果 last_message 有 tool_calls，去工具节点；否则去清理节点
             workflow.add_conditional_edges(
                 current_analyst,
                 getattr(self.conditional_logic, f"should_continue_{analyst_type}"),
                 [current_tools, current_clear],
             )
-            # 【普通边】工具节点 → 分析师（获取数据后继续分析）
             workflow.add_edge(current_tools, current_analyst)
 
-            # 【普通边】连接下一个分析师
-            # Connect to next analyst or to Bull Researcher if this is the last analyst
             if i < len(selected_analysts) - 1:
                 next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
                 workflow.add_edge(current_clear, next_analyst)
             else:
-                # 最后一个分析师 → 进入研究团队
                 workflow.add_edge(current_clear, "Route Research Phase")
 
-            """
-                    ┌─────────────────────────┐
-                    │   Market Analyst         │
-                    │   (分析完成)             │
-                    └───────────┬─────────────┘
-                                │
-                    ┌──────────┴──────────┐
-                    │                     │
-                    ▼                     ▼
-          should_continue_market()     should_continue_market()
-                    │                     │
-              返回 "market"             返回 "clear"
-                    │                     │
-                    ▼                     ▼
-           ┌──────────────┐      ┌──────────────┐
-           │ tools_market │      │Msg Clear     │
-           │              │      │Market        │
-           └──────┬───────┘      └──────┬───────┘
-                  │                      │
-                  │ 返回 Market Analyst  │ 流向下一个分析师
-                  │ (继续分析)           │
-                  ▼                      ▼
-           ┌──────────────┐      ┌──────────────┐
-           │   （回到）     │      │ Social Analyst│
-           │Market Analyst │      │  (下一个节点) │
-           └──────────────┘      └──────────────┘
-
-==================================================================================
-
-                                    ┌────────────────────────────────────────┐
-                                    │  selected_analysts = ["market", "social"]
-                                    └────────────────────────────────────────┘
-                                                      │
-                                                      ▼
-                                    ┌────────────────────────────────────┐
-                                    │ i=0, analyst_type="market"          │
-                                    └────────────────────────────────────┘
-                                                      │
-                                                      ▼
-  START ──► "Market Analyst" ──► should_continue_market()
-                                           │
-                         ┌─────────────────┴─────────────────┐
-                         │                                   │
-                    有 tool_calls                          没有
-                         │                                   │
-                         ▼                                   ▼
-              ┌─────────────────┐              ┌─────────────────────┐
-              │   tools_market  │              │   Msg Clear Market  │
-              └────────┬────────┘              └──────────┬──────────┘
-                       │                                  │
-                       │ 回到                              │ 流向
-                       ▼                                  ▼
-              ┌─────────────────┐              ┌─────────────────────┐
-              │ Market Analyst  │              │  Social Analyst     │
-              │ (继续分析)       │              │  (下一个分析师)       │
-              └────────┬────────┘              └──────────┬──────────┘
-                       │                                  │
-                       └──────► (循环直到不需要工具)        │
-                                                          │
-                                                          ▼ i=1, analyst_type="social"
-                                    ┌────────────────────────────────────┐
-                                    │ should_continue_social()           │
-                                    │ 最后判断：这是最后一个吗？           │
-                                    │ i=1, len=2, 1 < 1? → False         │
-                                    │ 所以不是最后一个...                  │
-                                    └────────────────────────────────────┘
-                                                          │
-                                                          ▼
-                                              ┌─────────────────────┐
-                                              │ Msg Clear Social    │
-                                              │ (最后一个分析师)     │
-                                              └──────────┬──────────┘
-                                                         │
-                                                         ▼
-                                              ┌─────────────────────┐
-                                              │  Bull Researcher    │
-                                              │  (进入研究团队)      │
-                                              └─────────────────────┘
-
-            """
-
-
-        # ─────────────────────────────────────────────────────────────────
-        # 第八步：定义研究团队的辩论边（多空辩论循环）
-        # ─────────────────────────────────────────────────────────────────
-
+    def _wire_research_debate(self, workflow):
+        """Bull/Bear debate loop, Research Manager -> Route Trader Phase."""
         # 【多空辩论条件边】
         # Add remaining edges
         # Bull Researcher → (Bear Researcher 或 Research Manager)
@@ -673,108 +582,21 @@ class GraphSetup:
         # 【普通边】Research Manager → Trader
         workflow.add_edge("Research Manager", "Route Trader Phase")
 
-        """
-            ┌────────────────────────────────────────────────────────────────┐
-            │                    Bull/Bear 辩论循环                          │
-            │                                                                │
-            │              ┌─────────────────────────────────┐              │
-            │              │    should_continue_debate()     │              │
-            │              │        返回值决定去向            │              │
-            │              └─────────────┬───────────────────┘              │
-            │                            │                                  │
-            │        ┌───────────────────┴───────────────────┐              │
-            │        │                                       │              │
-            │        ▼                                       ▼              │
-            │  ┌─────────────┐                       ┌─────────────┐        │
-            │  │   返回      │                       │   返回      │        │
-            │  │ "debate"   │                        │ "finished" │         │
-            │  └──────┬──────┘                       └──────┬──────┘        │
-            │         │                                     │              │
-            │         ▼                                     ▼              │
-            │  ┌─────────────┐                       ┌─────────────┐        │
-            │  │  Bear      │ ◄────────────────────► │  Research   │        │
-            │  │  Researcher│      继续辩论          │  Manager    │        │
-            │  └──────┬─────┘                       └──────┬──────┘        │
-            │         │                                     │              │
-            │         └──────► ◄─────────────────────► ◄───┘              │
-            │                                                                │
-            └────────────────────────────────────────────────────────────────┘
 
-
-
-        """
-
-        # ─────────────────────────────────────────────────────────────────
-        # 第九步：定义风险管理团队的辩论边（三方循环）
-        # ─────────────────────────────────────────────────────────────────
-
-        # 【普通边】Trader → Aggressive Analyst（开始风险辩论）
+    def _wire_orchestration_routing(self, workflow):
+        """Route-* phase routers + handoff summarizer edges."""
         workflow.add_edge("Trader", "Route Risk Phase")
-
-        workflow.add_conditional_edges(
+        for router in (
             "Route Research Phase",
-            self.conditional_logic.route_orchestration_stage,
-            {
-                "Route Research Phase": "Route Research Phase",
-                "Bull Researcher": "Bull Researcher",
-                "Trader": "Trader",
-                "Aggressive Analyst": "Aggressive Analyst",
-                "Finalize Risk Debate": "Finalize Risk Debate",
-                "Portfolio Manager": "Portfolio Manager",
-                "Summarize Analyst Phase": "Summarize Analyst Phase",
-                "Summarize Research Phase": "Summarize Research Phase",
-                "Summarize Trader Phase": "Summarize Trader Phase",
-                "Summarize Risk Phase": "Summarize Risk Phase",
-            },
-        )
-        workflow.add_conditional_edges(
             "Route Trader Phase",
-            self.conditional_logic.route_orchestration_stage,
-            {
-                "Route Research Phase": "Route Research Phase",
-                "Bull Researcher": "Bull Researcher",
-                "Trader": "Trader",
-                "Aggressive Analyst": "Aggressive Analyst",
-                "Finalize Risk Debate": "Finalize Risk Debate",
-                "Portfolio Manager": "Portfolio Manager",
-                "Summarize Analyst Phase": "Summarize Analyst Phase",
-                "Summarize Research Phase": "Summarize Research Phase",
-                "Summarize Trader Phase": "Summarize Trader Phase",
-                "Summarize Risk Phase": "Summarize Risk Phase",
-            },
-        )
-        workflow.add_conditional_edges(
             "Route Risk Phase",
-            self.conditional_logic.route_orchestration_stage,
-            {
-                "Route Research Phase": "Route Research Phase",
-                "Bull Researcher": "Bull Researcher",
-                "Trader": "Trader",
-                "Aggressive Analyst": "Aggressive Analyst",
-                "Finalize Risk Debate": "Finalize Risk Debate",
-                "Portfolio Manager": "Portfolio Manager",
-                "Summarize Analyst Phase": "Summarize Analyst Phase",
-                "Summarize Research Phase": "Summarize Research Phase",
-                "Summarize Trader Phase": "Summarize Trader Phase",
-                "Summarize Risk Phase": "Summarize Risk Phase",
-            },
-        )
-        workflow.add_conditional_edges(
             "Route Portfolio Phase",
-            self.conditional_logic.route_orchestration_stage,
-            {
-                "Route Research Phase": "Route Research Phase",
-                "Bull Researcher": "Bull Researcher",
-                "Trader": "Trader",
-                "Aggressive Analyst": "Aggressive Analyst",
-                "Finalize Risk Debate": "Finalize Risk Debate",
-                "Portfolio Manager": "Portfolio Manager",
-                "Summarize Analyst Phase": "Summarize Analyst Phase",
-                "Summarize Research Phase": "Summarize Research Phase",
-                "Summarize Trader Phase": "Summarize Trader Phase",
-                "Summarize Risk Phase": "Summarize Risk Phase",
-            },
-        )
+        ):
+            workflow.add_conditional_edges(
+                router,
+                self.conditional_logic.route_orchestration_stage,
+                ORCHESTRATION_ROUTE_TARGETS,
+            )
 
         workflow.add_edge("Finalize Risk Debate", "Route Portfolio Phase")
         workflow.add_edge("Summarize Analyst Phase", "Route Research Phase")
@@ -782,7 +604,8 @@ class GraphSetup:
         workflow.add_edge("Summarize Trader Phase", "Route Risk Phase")
         workflow.add_edge("Summarize Risk Phase", "Route Portfolio Phase")
 
-        # 【三方辩论条件边】
+    def _wire_risk_debate(self, workflow):
+        """Three-way risk debate loop, Portfolio Manager -> END."""
         # Aggressive → (Conservative 或 Portfolio Manager)
         workflow.add_conditional_edges(
             "Aggressive Analyst",
@@ -820,10 +643,3 @@ class GraphSetup:
         # 【终点】Portfolio Manager → END（结束）
         workflow.add_edge("Portfolio Manager", END)
 
-        # ─────────────────────────────────────────────────────────────────
-        # 第十步：编译 DAG - 生成可执行的工作流
-        # ─────────────────────────────────────────────────────────────────
-
-        # Compile and return
-        return workflow.compile()
-        # 【返回值】CompiledGraph 对象，可用于 graph.invoke() 或 graph.stream()
