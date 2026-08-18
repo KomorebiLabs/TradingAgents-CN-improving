@@ -85,6 +85,36 @@ except Exception:  # pragma: no cover
 
 
 # =============================================================================
+# Canonical State Policy (declared 2026-08-16, schema v2)
+# =============================================================================
+# The STRUCTURED blocks below are the single source of truth ("canonical"):
+#
+#     analyst_reports   <- canonical analyst outputs
+#     debate_blocks     <- canonical debate states
+#     decision_blocks   <- canonical downstream decisions
+#     ticker_info       <- canonical instrument metadata
+#
+# The legacy FLAT fields (market_report, investment_debate_state,
+# final_trade_decision, ...) are read-compatibility mirrors only.
+#
+# Rules for new code:
+#   1. WRITE structured blocks (via state_helpers.sync_* dual-write helpers
+#      during the migration window). Never write flat-only.
+#   2. READ from structured blocks. Flat reads are legacy
+#      (graph/setup.py routers and graph/reflection.py still read flat —
+#      they are backfilled by TradingAgentsGraph._ensure_structured_state).
+#   3. Reconciliation direction: on conflict, STRUCTURED WINS.
+#
+# Retirement plan:
+#   v2 (now)      - dual-write everywhere, structured declared canonical
+#   v2.1 (TBD)    - nodes stop writing flat fields (remove from sync_* helpers)
+#   v3.0 (TBD)    - flat fields removed from AgentState; legacy readers migrated
+# =============================================================================
+
+STATE_SCHEMA_VERSION = 2
+
+
+# =============================================================================
 # 嵌套状态类 (Nested State Classes)
 # =============================================================================
 
@@ -231,6 +261,11 @@ class AgentState(MessagesState):
 
     继承自 LangGraph 的 MessagesState，自动包含 messages 字段（对话消息历史）
     """
+
+    # -------------------------------------------------------------------------
+    # 【第零层】Schema 版本 - 见模块顶部 Canonical State Policy
+    # -------------------------------------------------------------------------
+    schema_version: Annotated[int, "Canonical state schema version (STATE_SCHEMA_VERSION)"]
 
     # -------------------------------------------------------------------------
     # 【第一层】元数据字段 - 记录交易上下文

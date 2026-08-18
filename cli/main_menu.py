@@ -95,30 +95,16 @@ def run_main_menu() -> None:
 
 def _run_screener() -> None:
     """Run the Screener CLI module (Stage 1)."""
-    # Try new location first (cli.screener.app.run), fall back to old
-    try:
-        from cli.screener.app import run as screener_run
+    from cli.screener.app import run as screener_run
 
-        screener_run()
-    except (ImportError, AttributeError):
-        from tradingagents.screener.cli.app import app as screener_app
-        import sys as _sys
-
-        _sys.argv = ["screener"]
-        screener_app()
+    screener_run()
 
 
 def _run_analyzer() -> None:
     """Run the Analyzer CLI module (Stage 2)."""
-    # Try new location first (cli.analyze.app.run), fall back to old
-    try:
-        from cli.analyze.app import run as analyzer_run
+    from cli.analyze.app import run as analyzer_run
 
-        analyzer_run()
-    except (ImportError, AttributeError):
-        from tradingagents.commands.analyze import run_analyze
-
-        run_analyze(ticker=None, date=None, interactive=True)
+    analyzer_run()
 
 
 def _run_report_viewer() -> None:
@@ -126,7 +112,7 @@ def _run_report_viewer() -> None:
     console = Console(theme=TRADING_THEME)
     path = Prompt.ask("[cyan]Report path[/cyan]", default="reports/")
     try:
-        from tradingagents.commands.report import view_report
+        from cli.report_viewer import view_report
 
         view_report(path)
     except ImportError:

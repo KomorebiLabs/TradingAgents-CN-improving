@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import typer
 from rich.align import Align
 from rich.console import Console
 from rich.layout import Layout
@@ -468,3 +469,140 @@ def run() -> None:
     except Exception as e:
         console.print()
         console.print(f"[bold red]✗ Error:[/bold red] [red]{e}[/red]")
+
+
+# ---------------------------------------------------------------------------
+# Typer sub-application, registered into the unified CLI (tradingagents/__main__.py)
+# as `python -m tradingagents screener [run] [OPTIONS]`.
+# ---------------------------------------------------------------------------
+
+ENV_PREFIX = "TRADINGAGENTS_SCREENER_"
+
+screener_app = typer.Typer(
+    name="screener",
+    help="Stage 1: A-share stock candidate screening.",
+    add_completion=True,
+    no_args_is_help=False,
+    rich_markup_mode="rich",
+)
+
+
+@screener_app.callback(invoke_without_command=True)
+def _screener_main(ctx: typer.Context) -> None:
+    """Run the interactive Screener wizard when no subcommand is provided."""
+    if ctx.invoked_subcommand is not None or ctx.resilient_parsing:
+        return
+    run()
+
+
+@screener_app.command("run")
+def run_cmd(
+    mode: str = typer.Option(
+        "FULL",
+        "--mode",
+        "-m",
+        help="Screener mode: FULL, FOCUSED, CUSTOM, MVP, EXTENDED, EXPERIMENTAL",
+        envvar=f"{ENV_PREFIX}MODE",
+    ),
+    date: Optional[str] = typer.Option(
+        None,
+        "--date",
+        "-d",
+        help="Trade date (YYYY-MM-DD). Defaults to last trading day.",
+        envvar=f"{ENV_PREFIX}DATE",
+    ),
+    tickers: Optional[str] = typer.Option(
+        None,
+        "--tickers",
+        "-t",
+        help="Comma-separated stock codes, e.g. 600519,000001,300750",
+        envvar=f"{ENV_PREFIX}TICKERS",
+    ),
+    universe: Optional[str] = typer.Option(
+        None,
+        "--universe",
+        "-u",
+        help="Path to a text file containing one stock code per line",
+        envvar=f"{ENV_PREFIX}UNIVERSE",
+    ),
+    output_dir: Optional[str] = typer.Option(
+        None,
+        "--output-dir",
+        "-o",
+        help="Directory to write output files (default: <project>/reports/Screener/)",
+        envvar=f"{ENV_PREFIX}OUTPUT_DIR",
+    ),
+    no_deep: bool = typer.Option(
+        False,
+        "--no-deep",
+        help="Skip Deep Analyzer stage (faster, no LLM calls)",
+        envvar=f"{ENV_PREFIX}NO_DEEP",
+    ),
+    max_stocks: int = typer.Option(
+        5,
+        "--max-stocks",
+        help="Maximum number of final candidate stocks",
+        envvar=f"{ENV_PREFIX}MAX_STOCKS",
+    ),
+    allow_weekend: bool = typer.Option(
+        False,
+        "--allow-weekend",
+        help="Allow running on weekends (normally blocked by runtime guard)",
+        envvar=f"{ENV_PREFIX}ALLOW_WEEKEND",
+    ),
+    focus_type: Optional[str] = typer.Option(
+        None,
+        "--focus-type",
+        help="FOCUSED mode focus type: sector, theme, index, or file",
+        envvar=f"{ENV_PREFIX}FOCUS_TYPE",
+    ),
+    focus_value: Optional[str] = typer.Option(
+        None,
+        "--focus-value",
+        help="FOCUSED mode focus value (e.g. 000300, semiconductor, AI)",
+        envvar=f"{ENV_PREFIX}FOCUS_VALUE",
+    ),
+    stagea_max_input: Optional[int] = typer.Option(
+        None,
+        "--stagea-max-input",
+        help="Override Stage A max input count (default from universe profile)",
+        envvar=f"{ENV_PREFIX}STAGEA_MAX_INPUT",
+    ),
+    stageb_max_input: Optional[int] = typer.Option(
+        None,
+        "--stageb-max-input",
+        help="Override Stage B max input count (default from universe profile)",
+        envvar=f"{ENV_PREFIX}STAGEB_MAX_INPUT",
+    ),
+):
+    """Run the Screener non-interactively with CLI options.
+
+    Examples:
+        python -m tradingagents screener run --date 2026-05-18
+        python -m tradingagents screener run --tickers 600519,000001 --no-deep
+    """
+    from cli.screener.run_impl import _get_last_trading_day, run_screener
+    from tradingagents.ui.summary import print_summary
+
+    config = {
+        "mode": mode.strip().upper(),
+        "trade_date": date or _get_last_trading_day(),
+        "tickers": tickers,
+        "universe": universe,
+        "output_dir": output_dir,
+        "no_deep": no_deep,
+        "max_stocks": max_stocks,
+        "allow_weekend": allow_weekend,
+        "focus_type": focus_type,
+        "focus_value": focus_value,
+        "stagea_max_input": stagea_max_input,
+        "stageb_max_input": stageb_max_input,
+    }
+
+    try:
+        result = run_screener(config)
+    except (ValueError, FileNotFoundError) as e:
+        console.print(f"[bold red]✗ Error:[/bold red] [red]{e}[/red]")
+        raise typer.Exit(code=2)
+
+    print_summary(result, module_type="screener")

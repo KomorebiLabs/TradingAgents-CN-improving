@@ -27,6 +27,7 @@ from tradingagents.agents.utils.agent_states import (
     AgentState,
     InvestDebateState,
     RiskDebateState,
+    STATE_SCHEMA_VERSION,
 )
 from tradingagents.agents.utils.agent_utils import build_instrument_profile, validate_semantic_prompt_slots
 
@@ -144,6 +145,7 @@ class Propagator:
         semantic_flow_controls = dict(self.config.get("semantic_flow_controls", {}))
 
         return {
+            "schema_version": STATE_SCHEMA_VERSION,
             # ─────────────────────────────────────────────────────────
             # 【元数据字段】
             # ─────────────────────────────────────────────────────────

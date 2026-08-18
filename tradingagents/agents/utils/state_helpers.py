@@ -348,6 +348,22 @@ def normalize_next_stage(next_stage: str | None, default_stage: str) -> str:
     return next_stage
 
 
+# ---------------------------------------------------------------------------
+# Context-size proxy thresholds (character counts)
+#
+# These drive "compression handoff" routing: when an intermediate output
+# exceeds a threshold, the graph routes through a handoff node that
+# compresses the context before the next phase. Character length is a
+# proxy for token count — tune here only, do not inline magic numbers.
+# ---------------------------------------------------------------------------
+RESEARCH_MANAGER_HISTORY_CHARS = 4000
+RESEARCH_MANAGER_DECISION_CHARS = 2500
+TRADER_PLAN_CHARS = 3200
+TRADER_OUTPUT_CHARS = 2200
+RISK_HISTORY_CHARS = 3500
+RISK_ARGUMENT_CHARS = 1600
+
+
 def determine_research_manager_next_stage(
     debate_history: str,
     manager_decision: str,
@@ -360,7 +376,7 @@ def determine_research_manager_next_stage(
 
     history_len = len(str(debate_history))
     decision_len = len(str(manager_decision))
-    if history_len >= 4000 or decision_len >= 2500:
+    if history_len >= RESEARCH_MANAGER_HISTORY_CHARS or decision_len >= RESEARCH_MANAGER_DECISION_CHARS:
         return "trader_handoff"
     return "trader"
 
@@ -377,7 +393,7 @@ def determine_trader_next_stage(
 
     plan_len = len(str(investment_plan))
     output_len = len(str(trader_output))
-    if plan_len >= 3200 or output_len >= 2200:
+    if plan_len >= TRADER_PLAN_CHARS or output_len >= TRADER_OUTPUT_CHARS:
         return "risk_handoff"
     return "risk"
 
@@ -394,7 +410,7 @@ def determine_risk_next_stage(
 
     history_len = len(str(risk_history))
     argument_len = len(str(latest_argument))
-    if history_len >= 3500 or argument_len >= 1600:
+    if history_len >= RISK_HISTORY_CHARS or argument_len >= RISK_ARGUMENT_CHARS:
         return "portfolio_handoff"
     return "portfolio"
 

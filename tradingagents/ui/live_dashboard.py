@@ -149,18 +149,9 @@ class LiveDashboard:
         return layout
 
     def _build_progress_panel(self) -> Panel:
-        import sys
-        print("[DEBUG panel] _build_progress_panel: start", flush=True)
-        sys.stdout.flush()
         table = Table(box=None, show_header=False, pad_edge=True)
-        print("[DEBUG panel] _build_progress_panel: table created", flush=True)
-        sys.stdout.flush()
         table.add_column("Stage", style="cyan", width=22)
-        print("[DEBUG panel] _build_progress_panel: col1 added", flush=True)
-        sys.stdout.flush()
         table.add_column("Status", width=16)
-        print("[DEBUG panel] _build_progress_panel: col2 added", flush=True)
-        sys.stdout.flush()
 
         for stage in _STAGE_ORDER:
             idx = _stage_index(stage)
@@ -177,23 +168,15 @@ class LiveDashboard:
                 status = "[yellow]○ WAIT[/yellow]"
 
             table.add_row(stage, f"{status} {bar}")
-        print("[DEBUG panel] _build_progress_panel: rows added", flush=True)
-        sys.stdout.flush()
 
-        result = Panel(
+        return Panel(
             table,
             title="[bold]PROGRESS[/bold]",
             border_style="cyan",
             padding=(1, 1),
         )
-        print("[DEBUG panel] _build_progress_panel: Panel created", flush=True)
-        sys.stdout.flush()
-        return result
 
     def _build_agent_panel(self) -> Panel:
-        import sys
-        print("[DEBUG panel] _build_agent_panel: start", flush=True)
-        sys.stdout.flush()
         table = Table(box=None, show_header=False, pad_edge=True)
         table.add_column("Agent", style="white", width=22)
         table.add_column("Status", width=10)
@@ -206,8 +189,6 @@ class LiveDashboard:
             }.get(status, "[yellow]○[/yellow]")
             table.add_row(agent, icon)
 
-        print("[DEBUG panel] _build_agent_panel: returning Panel", flush=True)
-        sys.stdout.flush()
         return Panel(
             table,
             title="[bold]AGENT STATUS[/bold]",
@@ -216,19 +197,12 @@ class LiveDashboard:
         )
 
     def _build_event_panel(self) -> Panel:
-        import sys
-        print("[DEBUG panel] _build_event_panel: start", flush=True)
-        sys.stdout.flush()
         with self._lock:
             lines = self.event_trail[-10:]
-        print("[DEBUG panel] _build_event_panel: lines fetched", flush=True)
-        sys.stdout.flush()
         if not lines:
             content = "[dim]Waiting for events...[/dim]"
         else:
             content = "\n".join(lines)
-        print("[DEBUG panel] _build_event_panel: returning Panel", flush=True)
-        sys.stdout.flush()
         return Panel(
             content,
             title="[bold]EVENT TRAIL[/bold]",
@@ -237,13 +211,8 @@ class LiveDashboard:
         )
 
     def _build_metrics_panel(self) -> Panel:
-        import sys
-        print("[DEBUG panel] _build_metrics_panel: start", flush=True)
-        sys.stdout.flush()
         elapsed = int(time.time() - self.start_time)
         mins, secs = divmod(elapsed, 60)
-        print("[DEBUG panel] _build_metrics_panel: elapsed calc done", flush=True)
-        sys.stdout.flush()
 
         def fmt(n: int) -> str:
             if n >= 1_000_000:
@@ -259,8 +228,6 @@ class LiveDashboard:
             f"[cyan]↓[/cyan]{fmt(self.tokens_out)}  "
             f"[cyan]⏱[/cyan] {mins:02d}:{secs:02d}"
         )
-        print("[DEBUG panel] _build_metrics_panel: returning Panel", flush=True)
-        sys.stdout.flush()
         return Panel(
             metrics,
             title="[bold]METRICS[/bold]",
@@ -277,35 +244,20 @@ class LiveDashboard:
             chunk_iterator: An iterable of graph chunks (e.g. graph.stream())
             stats_callback: A StatsCallbackHandler instance to poll metrics
         """
-        import sys
-        print("[DEBUG live_dashboard] run() called, building layout...", flush=True)
-        sys.stdout.flush()
         layout = self._build_layout()
         last_poll = time.time()
 
-        print("[DEBUG live_dashboard] layout built, entering Live context...", flush=True)
-        sys.stdout.flush()
-        print("[DEBUG live_dashboard] about to create Live() object...", flush=True)
-        sys.stdout.flush()
         _live_obj = Live(
             layout,
             refresh_per_second=4,
             transient=False,
             console=self.console,
         )
-        print("[DEBUG live_dashboard] Live() created, about to __enter__...", flush=True)
-        sys.stdout.flush()
         with _live_obj as live:
-            print("[DEBUG live_dashboard] Live context entered, updating...", flush=True)
-            sys.stdout.flush()
             # Force an immediate render of the initial layout before waiting for the first chunk.
             # Using update() instead of refresh() because refresh() is best-effort and may not
             # render on all terminal types (especially Windows/PowerShell).
-            print("[DEBUG live_dashboard] about to live.update()...", flush=True)
-            sys.stdout.flush()
             live.update(layout, refresh=True)
-            print("[DEBUG live_dashboard] live.update() returned, starting iterator...", flush=True)
-            sys.stdout.flush()
 
             for chunk in chunk_iterator:
                 self._process_chunk(chunk)
@@ -398,6 +350,19 @@ class LiveDashboard:
         # Risk debate state
         if "risk_debate_state" in chunk:
             risk = chunk["risk_debate_state"]
+            latest_speaker = risk.get("latest_speaker", "")
+
+            # Mark agents as completed when they finish speaking
+            if latest_speaker == "Aggressive" and risk.get("aggressive_history"):
+                # Conservative or Neutral will speak next, so Aggressive is done
+                self.update_agent_status("Aggressive Analyst", "completed")
+            if latest_speaker == "Conservative" and risk.get("conservative_history"):
+                # Neutral will speak next, so Conservative is done
+                self.update_agent_status("Conservative Analyst", "completed")
+            if latest_speaker == "Neutral" and risk.get("neutral_history"):
+                # Round complete, Neutral is done
+                self.update_agent_status("Neutral Analyst", "completed")
+
             if any(risk.get(k) for k in ["aggressive_history", "conservative_history", "neutral_history"]):
                 self.update_agent_status("Aggressive Analyst", "in_progress")
                 self.add_event("Risk: analysis in progress")
