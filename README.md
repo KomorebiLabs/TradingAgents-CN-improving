@@ -2,27 +2,6 @@
   <img src="assets/TauricResearch.png" style="width: 60%; height: auto;">
 </p>
 
-<div align="center" style="line-height: 1;">
-  <a href="https://arxiv.org/abs/2412.20138" target="_blank"><img alt="arXiv" src="https://img.shields.io/badge/arXiv-2412.20138-B31B1B?logo=arxiv"/></a>
-  <a href="https://discord.com/invite/hk9PGKShPK" target="_blank"><img alt="Discord" src="https://img.shields.io/badge/Discord-TradingResearch-7289da?logo=discord&logoColor=white&color=7289da"/></a>
-  <a href="./assets/wechat.png" target="_blank"><img alt="WeChat" src="https://img.shields.io/badge/WeChat-TauricResearch-brightgreen?logo=wechat&logoColor=white"/></a>
-  <a href="https://x.com/TauricResearch" target="_blank"><img alt="X Follow" src="https://img.shields.io/badge/X-TauricResearch-white?logo=x&logoColor=white"/></a>
-  <br>
-  <a href="https://github.com/TauricResearch/" target="_blank"><img alt="Community" src="https://img.shields.io/badge/Join_GitHub_Community-TauricResearch-14C290?logo=discourse"/></a>
-</div>
-
-<div align="center">
-  <!-- Keep these links. Translations will automatically update with the README. -->
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=de">Deutsch</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=es">Español</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=fr">français</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=ja">日本語</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=ko">한국어</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=pt">Português</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=ru">Русский</a> | 
-  <a href="https://www.readme-i18n.com/TauricResearch/TradingAgents?lang=zh">中文</a>
-</div>
-
 ---
 
 # 项目总览（中文）
@@ -51,8 +30,8 @@ TradingAgents 是由 [Tauric Research](https://github.com/TauricResearch) 开发
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/TauricResearch/TradingAgents.git
-cd TradingAgents
+git clone https://github.com/KomorebiLabs/TradingAgents-CN-improving.git
+cd TradingAgents-CN-improving
 
 # 2. 创建虚拟环境（Python 3.10+）
 conda create -n tradingagents python=3.13
@@ -83,14 +62,10 @@ export OPENROUTER_API_KEY=...     # OpenRouter（一站式模型路由）
 > # 然后编辑 .env 文件填入你的 API Keys
 > ```
 
-### Docker 启动
+### 运行测试（离线护栏）
 
 ```bash
-cp .env.example .env  # 填入 API Keys
-docker compose run --rm tradingagents
-
-# 使用本地模型（Ollama）
-docker compose --profile ollama run --rm tradingagents-ollama
+venv/Scripts/python.exe -m pytest tests/ -q    # 预期：385 passed（全部离线，无网络无 LLM）
 ```
 
 ---
@@ -127,9 +102,9 @@ docker compose --profile ollama run --rm tradingagents-ollama
 
 **交互启动：**
 ```bash
-python -m cli                        # 推荐：通过主菜单进入
-python -m tradingagents               # 同上（统一入口）
-python -m tradingagents screener     # 直接进入 Screener（向后兼容）
+python -m tradingagents               # 推荐：统一入口（主菜单）
+python -m cli                        # 通过主菜单进入（向后兼容）
+python -m tradingagents screener     # 直接进入 Screener
 ```
 
 ---
@@ -204,9 +179,9 @@ V.   投资组合经理（Portfolio Manager）
 
 **交互启动：**
 ```bash
-python -m cli                        # 推荐：通过主菜单进入
-python -m tradingagents               # 同上（统一入口）
-python -m tradingagents analyze      # 直接进入 Analyzer（向后兼容）
+python -m tradingagents analyze      # 直接进入 Analyzer
+python -m tradingagents               # 通过主菜单进入
+python -m cli                        # 通过主菜单进入（向后兼容）
 ```
 
 **Python API 启动（无界面）：**
@@ -236,7 +211,6 @@ print(decision)  # 输出：BUY / HOLD / SELL + 置信度
 生成的分析报告和筛选结果以 Markdown 格式保存在本地目录，CLI 提供交互式查看入口：
 
 ```bash
-python -m cli                                  # 选 3 查看报告
 python -m tradingagents report reports/        # 直接指定目录
 ```
 
@@ -273,56 +247,48 @@ TradingAgents 内置 **Harness 可观测性框架**，提供 LLM 调用全链路
 ## 项目目录结构
 
 ```
-TradingAgents/
-├── cli/                          # 统一 CLI 入口（Phase 5 新增）
+TradingAgents-CN-improving/
+├── cli/                          # 统一 CLI（Phase 5）
 │   ├── __main__.py               # python -m cli 入口
 │   ├── main_menu.py              # Bloomberg 风格主菜单
-│   ├── prompts.py                 # 统一问卷工具（Rich 替代 questionary）
-│   ├── analyze/                  # Analyzer 模块
-│   │   ├── app.py                # 8 步问卷 + 汇总页
-│   │   └── run_impl.py           # 核心执行引擎 + Live Dashboard
-│   └── screener/                 # Screener 模块
-│       ├── app.py                # 6 步问卷 + 执行
-│       └── run_impl.py           # 筛选器执行引擎
+│   ├── prompts.py                # 统一问卷工具
+│   ├── report_viewer.py          # 报告查看器
+│   ├── announcements.py          # 公告组件
+│   ├── analyze/                  # Analyzer 模块（app.py + run_impl.py）
+│   └── screener/                 # Screener 模块（app.py + run_impl.py）
 │
 ├── tradingagents/
-│   ├── ui/                       # Phase 5 UI 层
-│   │   ├── theme.py              # Bloomberg Terminal 配色主题
-│   │   ├── live_dashboard.py     # 4 面板实时仪表盘（3s 刷新）
-│   │   ├── summary.py            # 分析/筛选结果汇总页
-│   │   └── terminal_mascot.py    # 品牌吉祥物 Komo（小灰猫）
-│   ├── harness/                  # Phase 3 可观测性框架
-│   │   ├── skills/               # Skills 系统
-│   │   │   ├── registry.py      # Skill 注册表
-│   │   │   ├── mapping.py       # 决策类型路由
-│   │   │   └── bundled/         # 25+ 内置 Skill（.md）
-│   │   └── engine/               # 可观测性引擎
-│   │       └── cost_tracker.py   # Token 成本追踪
-│   ├── screener/                 # Phase 1 筛选器
-│   │   ├── strategies/           # 6 大筛选策略
-│   │   │   ├── technical.py     # 技术面策略
-│   │   │   ├── smart_money.py   # 主力资金策略
-│   │   │   └── policy.py        # 政策策略
-│   │   ├── cli/                 # Screener Typer CLI
-│   │   └── engine.py            # 筛选器执行引擎
-│   ├── graph/                   # LangGraph 核心
-│   │   └── trading_graph.py     # TradingAgentsGraph 多智能体图
-│   ├── agents/                  # 多智能体系统
-│   │   ├── analysts/            # 4 类分析师
+│   ├── application/              # 应用层（AnalysisRequest/Result + 9 种执行事件 + AnalysisService）
+│   ├── ports/                    # MarketDataPort 能力协议 + 进程级共享实例
+│   ├── ui/                       # 终端 UI（live_dashboard / summary / theme）
+│   ├── harness/                  # Phase 3 可观测性（skills/ + engine/cost_tracker）
+│   ├── graph/                    # LangGraph 核心
+│   │   ├── trading_graph.py      # TradingAgentsGraph（stream_analysis / propagate）
+│   │   ├── setup.py              # 图装配（setup_graph 编排器 + 阶段构建方法）
+│   │   └── reflection/           # 反思包（extraction / route_analytics / reflector / conclusion）
+│   ├── agents/                   # 多智能体系统
+│   │   ├── analysts/             # 分析师（market / social / news / fundamentals）
 │   │   ├── researchers/          # 多空研究员
-│   │   ├── trader/              # 交易员
-│   │   └── risk_mgmt/           # 风控辩论团队
-│   ├── commands/                # 向后兼容命令（Analyze）
-│   └── llm_clients/            # LLM 客户端工厂
+│   │   ├── trader/               # 交易员
+│   │   ├── risk_mgmt/            # 风控辩论团队
+│   │   ├── managers/             # Research / Portfolio Manager
+│   │   └── utils/                # 状态助手 + 记忆（memory/）+ 工具装配（tools/）
+│   ├── screener/                 # Stage 1 筛选器
+│   │   ├── data_access.py        # 数据门面（546 行，拆自 1905 行）
+│   │   ├── engine.py             # 筛选执行引擎 + DeepAnalyzer
+│   │   ├── universe.py           # 股票池构建
+│   │   ├── merger/               # 信号合并包（pipeline / aggregation / conflicts / filters / ...）
+│   │   ├── strategies/           # 三大策略（technical / policy / smart_money）
+│   │   └── vendors/              # 供应商适配（tencent / sina / ths / misc / backup）
+│   ├── dataflows/                # 数据层
+│   │   ├── akshare/              # akshare 领域包（stock / news / flow / macro / events / ...）
+│   │   ├── interface.py          # 供应商路由（route_to_vendor）
+│   │   └── errors.py             # 类型化供应商错误（VendorError 族）
+│   └── llm_clients/              # LLM 客户端工厂（10+ 提供商）
 │
-├── docs/                        # 开发文档
-│   └── Plan/Phase3/             # Phase 1-5 详细计划
-│       ├── Plan5CLI.md          # Phase 5 CLI 详细设计
-│       └── ...
-│
-├── assets/                     # 图片资源（Logo/架构图）
-├── main.py                     # Python API 入口
-└── pyproject.toml              # 项目元数据 + 依赖声明
+├── tests/                        # 离线测试护栏（385 个用例，全离线）
+├── main.py                       # Python API 入口示例
+└── pyproject.toml                # 项目元数据 + 依赖声明
 ```
 
 ---
@@ -331,13 +297,12 @@ TradingAgents/
 
 | 功能 | 推荐命令 | 说明 |
 |------|----------|------|
-| **主菜单（推荐）** | `python -m cli` | 交互式主菜单，可进入 Screener / Analyzer / Report |
-| **统一入口** | `python -m tradingagents` | 同上，通过 Typer 转发 |
-| **直接进入 Screener** | `python -m tradingagents screener` | 向后兼容，直接进入筛选器 |
-| **直接进入 Analyzer** | `python -m tradingagents analyze` | 向后兼容，直接进入分析器 |
-| **查看报告** | `python -m tradingagents report reports/` | 打开 HTML 报告 |
+| **统一入口（推荐）** | `python -m tradingagents` | 交互式主菜单，可进入 Screener / Analyzer / Report |
+| **主菜单（兼容）** | `python -m cli` | 同上 |
+| **直接进入 Screener** | `python -m tradingagents screener` | 直接进入筛选器 |
+| **直接进入 Analyzer** | `python -m tradingagents analyze` | 直接进入分析器 |
+| **查看报告** | `python -m tradingagents report reports/` | 打开报告查看器 |
 | **版本信息** | `python -m tradingagents --version` | 显示版本 |
-| **系统信息** | `python -m tradingagents --info` | 显示模块状态 |
 | **Python API** | `python main.py` | 编程方式调用（见上方示例） |
 
 ---
@@ -364,224 +329,24 @@ pip install "questionary>=2.1.0"
 
 ---
 
-## 参与贡献
+# 上游版权与致谢
 
-我们欢迎社区贡献！无论是修复 Bug、改进文档还是提出新功能，都欢迎参与：
-- 🌐 [Tauric Research](https://tauric.ai/)
-- 💬 [Discord 社区](https://discord.com/invite/hk9PGKShPK)
+TradingAgents 框架起源于 [Tauric Research](https://github.com/TauricResearch/TradingAgents) 的开源项目（arXiv:2412.20138）。本仓库 **TradingAgents-CN-improving** 在其基础上面向 A 股市场做了深度重构与扩展。
 
----
-
-# TradingAgents: Multi-Agents LLM Financial Trading Framework
-
-## News
-- [2026-03] **TradingAgents v0.2.3** released with multi-language support, GPT-5.4 family models, unified model catalog, backtesting date fidelity, and proxy support.
-- [2026-03] **TradingAgents v0.2.2** released with GPT-5.4/Gemini 3.1/Claude 4.6 model coverage, five-tier rating scale, OpenAI Responses API, Anthropic effort control, and cross-platform stability.
-- [2026-02] **TradingAgents v0.2.0** released with multi-provider LLM support (GPT-5.x, Gemini 3.x, Claude 4.x, Grok 4.x) and improved system architecture.
-- [2026-01] **Trading-R1** [Technical Report](https://arxiv.org/abs/2509.11420) released, with [Terminal](https://github.com/TauricResearch/Trading-R1) expected to land soon.
-
-<div align="center">
-<a href="https://www.star-history.com/#TauricResearch/TradingAgents&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=TauricResearch/TradingAgents&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=TauricResearch/TradingAgents&type=Date" />
-   <img alt="TradingAgents Star History" src="https://api.star-history.com/svg?repos=TauricResearch/TradingAgents&type=Date" style="width: 80%; height: auto;" />
- </picture>
-</a>
-</div>
-
-> 🎉 **TradingAgents** officially released! We have received numerous inquiries about the work, and we would like to express our thanks for the enthusiasm in our community.
->
-> So we decided to fully open-source the framework. Looking forward to building impactful projects with you!
-
-<div align="center">
-
-🚀 [TradingAgents](#tradingagents-framework) | ⚡ [Installation & CLI](#installation-and-cli) | 🎬 [Demo](https://www.youtube.com/watch?v=90gr5lwjIho) | 📦 [Package Usage](#tradingagents-package) | 🤝 [Contributing](#contributing) | 📄 [Citation](#citation)
-
-</div>
-
-## TradingAgents Framework
-
-TradingAgents is a multi-agent trading framework that mirrors the dynamics of real-world trading firms. By deploying specialized LLM-powered agents: from fundamental analysts, sentiment experts, and technical analysts, to trader, risk management team, the platform collaboratively evaluates market conditions and informs trading decisions. Moreover, these agents engage in dynamic discussions to pinpoint the optimal strategy.
-
-<p align="center">
-  <img src="assets/schema.png" style="width: 100%; height: auto;">
-</p>
-
-> TradingAgents framework is designed for research purposes. Trading performance may vary based on many factors, including the chosen backbone language models, model temperature, trading periods, the quality of data, and other non-deterministic factors. [It is not intended as financial, investment, or trading advice.](https://tauric.ai/disclaimer/)
-
-Our framework decomposes complex trading tasks into specialized roles. This ensures the system achieves a robust, scalable approach to market analysis and decision-making.
-
-### Analyst Team
-- Fundamentals Analyst: Evaluates company financials and performance metrics, identifying intrinsic values and potential red flags.
-- Sentiment Analyst: Analyzes social media and public sentiment using sentiment scoring algorithms to gauge short-term market mood.
-- News Analyst: Monitors global news and macroeconomic indicators, interpreting the impact of events on market conditions.
-- Technical Analyst: Utilizes technical indicators (like MACD and RSI) to detect trading patterns and forecast price movements.
-
-<p align="center">
-  <img src="assets/analyst.png" width="100%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-### Researcher Team
-- Comprises both bullish and bearish researchers who critically assess the insights provided by the Analyst Team. Through structured debates, they balance potential gains against inherent risks.
-
-<p align="center">
-  <img src="assets/researcher.png" width="70%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-### Trader Agent
-- Composes reports from the analysts and researchers to make informed trading decisions. It determines the timing and magnitude of trades based on comprehensive market insights.
-
-<p align="center">
-  <img src="assets/trader.png" width="70%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-### Risk Management and Portfolio Manager
-- Continuously evaluates portfolio risk by assessing market volatility, liquidity, and other risk factors. The risk management team evaluates and adjusts trading strategies, providing assessment reports to the Portfolio Manager for final decision.
-- The Portfolio Manager approves/rejects the transaction proposal. If approved, the order will be sent to the simulated exchange and executed.
-
-<p align="center">
-  <img src="assets/risk.png" width="70%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-## Installation and CLI
-
-### Installation
-
-Clone TradingAgents:
-```bash
-git clone https://github.com/TauricResearch/TradingAgents.git
-cd TradingAgents
-```
-
-Create a virtual environment in any of your favorite environment managers:
-```bash
-conda create -n tradingagents python=3.13
-conda activate tradingagents
-```
-
-Install the package and its dependencies:
-```bash
-pip install .
-```
-
-### Docker
-
-Alternatively, run with Docker:
-```bash
-cp .env.example .env  # add your API keys
-docker compose run --rm tradingagents
-```
-
-For local models with Ollama:
-```bash
-docker compose --profile ollama run --rm tradingagents-ollama
-```
-
-### Required APIs
-
-TradingAgents supports multiple LLM providers. Set the API key for your chosen provider:
-
-```bash
-export OPENAI_API_KEY=...          # OpenAI (GPT)
-export GOOGLE_API_KEY=...          # Google (Gemini)
-export ANTHROPIC_API_KEY=...       # Anthropic (Claude)
-export XAI_API_KEY=...             # xAI (Grok)
-export DEEPSEEK_API_KEY=...        # DeepSeek
-export DASHSCOPE_API_KEY=...       # Qwen (Alibaba DashScope)
-export ZHIPU_API_KEY=...           # GLM (Zhipu)
-export OPENROUTER_API_KEY=...      # OpenRouter
-export ALPHA_VANTAGE_API_KEY=...   # Alpha Vantage
-```
-
-For enterprise providers (e.g. Azure OpenAI, AWS Bedrock), copy `.env.enterprise.example` to `.env.enterprise` and fill in your credentials.
-
-For local models, configure Ollama with `llm_provider: "ollama"` in your config.
-
-Alternatively, copy `.env.example` to `.env` and fill in your keys:
-```bash
-cp .env.example .env
-```
-
-### CLI Usage
-
-Launch the interactive CLI:
-```bash
-tradingagents          # installed command
-python -m cli.main     # alternative: run directly from source
-```
-You will see a screen where you can select your desired tickers, analysis date, LLM provider, research depth, and more.
-
-<p align="center">
-  <img src="assets/cli/cli_init.png" width="100%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-An interface will appear showing results as they load, letting you track the agent's progress as it runs.
-
-<p align="center">
-  <img src="assets/cli/cli_news.png" width="100%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-<p align="center">
-  <img src="assets/cli/cli_transaction.png" width="100%" style="display: inline-block; margin: 0 2%;">
-</p>
-
-## TradingAgents Package
-
-### Implementation Details
-
-We built TradingAgents with LangGraph to ensure flexibility and modularity. The framework supports multiple LLM providers: OpenAI, Google, Anthropic, xAI, OpenRouter, and Ollama.
-
-### Python Usage
-
-To use TradingAgents inside your code, you can import the `tradingagents` module and initialize a `TradingAgentsGraph()` object. The `.propagate()` function will return a decision. You can run `main.py`, here's also a quick example:
-
-```python
-from tradingagents.graph.trading_graph import TradingAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
-
-ta = TradingAgentsGraph(debug=True, config=DEFAULT_CONFIG.copy())
-
-# forward propagate
-_, decision = ta.propagate("NVDA", "2026-01-15")
-print(decision)
-```
-
-You can also adjust the default configuration to set your own choice of LLMs, debate rounds, etc.
-
-```python
-from tradingagents.graph.trading_graph import TradingAgentsGraph
-from tradingagents.default_config import DEFAULT_CONFIG
-
-config = DEFAULT_CONFIG.copy()
-config["llm_provider"] = "openai"        # openai, google, anthropic, xai, openrouter, ollama
-config["deep_think_llm"] = "gpt-5.4"       # Model for complex reasoning
-config["quick_think_llm"] = "gpt-5.4-mini" # Model for quick tasks
-config["max_debate_rounds"] = 2
-
-ta = TradingAgentsGraph(debug=True, config=config)
-_, decision = ta.propagate("NVDA", "2026-01-15")
-print(decision)
-```
-
-See `tradingagents/default_config.py` for all configuration options.
-
-## Contributing
-
-We welcome contributions from the community! Whether it's fixing a bug, improving documentation, or suggesting a new feature, your input helps make this project better. If you are interested in this line of research, please consider joining our open-source financial AI research community [Tauric Research](https://tauric.ai/).
+> 上游英文安装 / CLI / 包使用文档已被上文的中文本地化文档取代，不再保留；上游方的 Discord、微信群、Star History 等社区资源与本仓库无关。
 
 ## Citation
 
-Please reference our work if you find *TradingAgents* provides you with some help :)
+请在你的工作中引用原框架：
 
 ```
 @misc{xiao2025tradingagentsmultiagentsllmfinancial,
-      title={TradingAgents: Multi-Agents LLM Financial Trading Framework}, 
+      title={TradingAgents: Multi-Agents LLM Financial Trading Framework},
       author={Yijia Xiao and Edward Sun and Di Luo and Wei Wang},
       year={2025},
       eprint={2412.20138},
       archivePrefix={arXiv},
       primaryClass={q-fin.TR},
-      url={https://arxiv.org/abs/2412.20138}, 
+      url={https://arxiv.org/abs/2412.20138},
 }
 ```

@@ -523,7 +523,7 @@ score = min(100,
 
 ### 2.5 信号合并与冲突解决（Merger）
 
-**文件：** `tradingagents/screener/merger.py`
+**文件：** `tradingagents/screener/merger/`（2026-08 从单文件 `merger.py` 拆出的包：`pipeline` / `aggregation` / `conflicts` / `filters` / `semantic` / `explanations`）
 
 Merger 是整个筛选流程中最复杂的逻辑模块，负责将三策略的 SignalCard 合并、排序并过滤。
 
@@ -696,7 +696,7 @@ Stage 2 对单只股票进行完整的多智能体协同分析，核心文件位
 
 ### 3.7 记忆系统（Memory）
 
-**文件：** `tradingagents/agents/utils/memory.py`
+**文件：** `tradingagents/agents/utils/memory/`（2026-08 从单文件 `memory.py` 拆出的包：`store` / `retrieval` / `analytics` / `basic`）
 
 Phase 3 引入了 5 个独立记忆实例，为不同角色保留跨会话上下文：
 
@@ -1065,4 +1065,22 @@ ScreenerDataAccess 对所有 HTTP 请求注入浏览器标准 Header（User-Agen
 
 ---
 
-*本文档由 TradingAgents Team 维护，最后更新于 2026-06。*
+## 附录：2026-08 代码质量整理（大文件存量拆分）
+
+B 组六大千行文件全部拆分完成，公开 API / 调用路径零改动（均以门面 + 重导出承接，`*_legacy.py` 保留待删）：
+
+| 文件（原行数） | 拆分后组织 | 新增测试护栏 |
+|---|---|---|
+| `screener/data_access.py`（1905） | 门面 546 行 + `vendors/` + `capability.py` + `response_parsers.py` + `ticker_formats.py` + `vendor_http.py` | +43 |
+| `dataflows/akshare_interface.py`（1619） | 门面 41 行 + `dataflows/akshare/` 领域包 | +9 |
+| `graph/reflection.py`（1302） | `graph/reflection/` 包（extraction / route_analytics / reflector / conclusion） | +9 |
+| `agents/utils/memory.py`（1124） | `agents/utils/memory/` 包（store / retrieval / analytics / basic） | +18 |
+| `screener/merger.py`（1050） | `screener/merger/` 包（pipeline / aggregation / conflicts / filters / semantic / explanations） | +25 |
+| `agents/utils/agent_utils.py`（944） | 门面 37 行 + `agents/utils/tools/` | +9 |
+| `graph/setup.py`（829） | `setup_graph()` 拆为 8 个阶段构建方法（471 → 38 行编排器） | +4 |
+
+另有 `ports/market_data.py`（MarketDataPort）消灭数据层反向依赖与依赖环、`dataflows/errors.py` 类型化供应商错误、`application/` 契约层（AnalysisRequest/Result + 执行事件协议）。当前离线测试护栏 **385 个用例**，全部无网络、无 LLM。
+
+---
+
+*本文档由 TradingAgents Team 维护，最后更新于 2026-08。*
