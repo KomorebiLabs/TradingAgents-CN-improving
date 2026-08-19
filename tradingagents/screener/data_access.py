@@ -23,6 +23,7 @@ from tradingagents.screener import capability
 from tradingagents.screener import vendors
 from tradingagents.screener.throttling import AntiBanConfig, ThrottledRequester
 from tradingagents.screener.vendor_http import DataSourceConfig, VendorHttp
+from tradingagents.screener.vendors._guard import TRACKER as VENDOR_HEALTH
 
 # Compat re-exports: these used to be defined in this module.
 ProbeResult = capability.ProbeResult
@@ -88,7 +89,11 @@ class ScreenerDataAccess:
         )
         self._tushare_token: str = capability.load_tushare_token()
         # B-11.1: process-level cache to avoid duplicate hist requests across Stage A and Stage B
+        # R3 cache policy: in-memory, instance-scoped, no TTL (a run is short); invalidation is
+        # implicit — a new ScreenerDataAccess per run starts cold. Counters expose hit ratio.
         self._hist_cache: Dict[str, Any] = {}
+        self._hist_cache_hits = 0
+        self._hist_cache_misses = 0
         # R3: per-run consecutive failure counters for adaptive degradation
         self._vendor_fail_counts: Dict[str, int] = {}
 
@@ -120,6 +125,31 @@ class ScreenerDataAccess:
         self._vendor_fail_counts[name] = 0
 
     # -------------------------------------------------------------------------
+    # 数据健康度监控 (R3): vendor health snapshot + hist-cache stats
+    # -------------------------------------------------------------------------
+
+    def get_vendor_health_snapshot(self) -> Dict[str, Any]:
+        """Per-vendor call/failure/elapsed stats collected via @vendor_call."""
+        return VENDOR_HEALTH.snapshot()
+
+    def get_vendor_health_lines(self) -> list:
+        """Human-readable per-vendor health summary (for logs / run summary)."""
+        return VENDOR_HEALTH.summary_lines()
+
+    def reset_vendor_health(self) -> None:
+        """Start a fresh health audit (call at the top of a run)."""
+        VENDOR_HEALTH.reset()
+
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Hist-cache effectiveness: hits/misses/ratio (invalidation = new instance)."""
+        total = self._hist_cache_hits + self._hist_cache_misses
+        return {
+            "hist_cache_hits": self._hist_cache_hits,
+            "hist_cache_misses": self._hist_cache_misses,
+            "hist_cache_hit_ratio": round(self._hist_cache_hits / total, 3) if total else 0.0,
+        }
+
+    # -------------------------------------------------------------------------
     # 能力探测 API
     # -------------------------------------------------------------------------
 
@@ -135,6 +165,8 @@ class ScreenerDataAccess:
         self, trade_date: str | None = None
     ) -> Dict[str, Any]:
         """执行全量 live probe，返回探测摘要."""
+        # R3: each run starts a fresh vendor-health audit (probe calls count too).
+        self.reset_vendor_health()
         summary = self._load_or_run_probes(trade_date=trade_date)
         summary = capability.apply_legacy_aliases(summary, self._vendors_config())
         warnings = list(summary.get("warnings", []))
@@ -164,6 +196,10 @@ class ScreenerDataAccess:
 
         summary["warnings"] = warnings
         summary["request_stats"] = self.requester.get_stats()
+        # R3: attach vendor health + hist-cache effectiveness so the run report
+        # carries a live reliability audit.
+        summary["vendor_health"] = self.get_vendor_health_snapshot()
+        summary["cache_stats"] = self.get_cache_stats()
         # B-6.1: surface throttle warnings at the top level alongside probe warnings
         throttle_warnings = summary["request_stats"].get("warnings", [])
         for w in throttle_warnings:
@@ -295,7 +331,9 @@ class ScreenerDataAccess:
         # B-11.1: check cache before attempting any vendor request
         cache_key = f"{ticker}_{start_date}_{end_date}_{adjust}"
         if cache_key in self._hist_cache:
+            self._hist_cache_hits += 1
             return self._hist_cache[cache_key]
+        self._hist_cache_misses += 1
 
         # Primary: Tencent 直连
         if not self._vendor_circuit_open("tencent_direct"):
