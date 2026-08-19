@@ -89,6 +89,8 @@ class ScreenerDataAccess:
         self._tushare_token: str = capability.load_tushare_token()
         # B-11.1: process-level cache to avoid duplicate hist requests across Stage A and Stage B
         self._hist_cache: Dict[str, Any] = {}
+        # R3: per-run consecutive failure counters for adaptive degradation
+        self._vendor_fail_counts: Dict[str, int] = {}
 
     # -------------------------------------------------------------------------
     # 内部: 配置与共享对象
@@ -101,6 +103,21 @@ class ScreenerDataAccess:
 
     def _http(self) -> VendorHttp:
         return VendorHttp.from_vendor_config(self._ds_config, self._vendors_config())
+
+    # -------------------------------------------------------------------------
+    # 运行时自适应降级 (R3): 同一 run 内某供应商连续失败 N 次后短路跳过
+    # -------------------------------------------------------------------------
+    _CIRCUIT_BREAK_AFTER = 3
+
+    def _vendor_circuit_open(self, name: str) -> bool:
+        """True when a vendor failed N consecutive times and should be skipped."""
+        return self._vendor_fail_counts.get(name, 0) >= self._CIRCUIT_BREAK_AFTER
+
+    def _note_vendor_failure(self, name: str) -> None:
+        self._vendor_fail_counts[name] = self._vendor_fail_counts.get(name, 0) + 1
+
+    def _note_vendor_success(self, name: str) -> None:
+        self._vendor_fail_counts[name] = 0
 
     # -------------------------------------------------------------------------
     # 能力探测 API
@@ -281,35 +298,49 @@ class ScreenerDataAccess:
             return self._hist_cache[cache_key]
 
         # Primary: Tencent 直连
-        result = vendors.tencent.fetch_hist_direct(http, ticker, start_date, end_date, adjust)
-        if result is not None and not getattr(result, "empty", True):
-            self._hist_cache[cache_key] = result
-            return result
-
-        # Secondary: AkShare Tencent
-        result = vendors.tencent.fetch_hist_akshare(http, ticker, start_date, end_date, adjust)
-        if result is not None and not getattr(result, "empty", True):
-            self._hist_cache[cache_key] = result
-            return result
-
-        # Tertiary: AkShare Sina
-        result = vendors.sina.fetch_hist(http, ticker, start_date, end_date, adjust)
-        if result is not None and not getattr(result, "empty", True):
-            self._hist_cache[cache_key] = result
-            return result
-
-        # Quaternary: AkShare Baostock
-        result = vendors.backup.fetch_hist_baostock(http, ticker, start_date, end_date, adjust)
-        if result is not None and not getattr(result, "empty", True):
-            self._hist_cache[cache_key] = result
-            return result
-
-        # Last resort: yfinance
-        if yfinance:
-            result = vendors.backup.fetch_hist_yfinance(http, self.requester, ticker, start_date, end_date)
+        if not self._vendor_circuit_open("tencent_direct"):
+            result = vendors.tencent.fetch_hist_direct(http, ticker, start_date, end_date, adjust)
             if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("tencent_direct")
                 self._hist_cache[cache_key] = result
                 return result
+            self._note_vendor_failure("tencent_direct")
+
+        # Secondary: AkShare Tencent
+        if not self._vendor_circuit_open("tencent_akshare"):
+            result = vendors.tencent.fetch_hist_akshare(http, ticker, start_date, end_date, adjust)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("tencent_akshare")
+                self._hist_cache[cache_key] = result
+                return result
+            self._note_vendor_failure("tencent_akshare")
+
+        # Tertiary: AkShare Sina
+        if not self._vendor_circuit_open("sina_hist"):
+            result = vendors.sina.fetch_hist(http, ticker, start_date, end_date, adjust)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("sina_hist")
+                self._hist_cache[cache_key] = result
+                return result
+            self._note_vendor_failure("sina_hist")
+
+        # Quaternary: AkShare Baostock
+        if not self._vendor_circuit_open("baostock_hist"):
+            result = vendors.backup.fetch_hist_baostock(http, ticker, start_date, end_date, adjust)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("baostock_hist")
+                self._hist_cache[cache_key] = result
+                return result
+            self._note_vendor_failure("baostock_hist")
+
+        # Last resort: yfinance
+        if yfinance and not self._vendor_circuit_open("yfinance_hist"):
+            result = vendors.backup.fetch_hist_yfinance(http, self.requester, ticker, start_date, end_date)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("yfinance_hist")
+                self._hist_cache[cache_key] = result
+                return result
+            self._note_vendor_failure("yfinance_hist")
 
         return None
 
@@ -343,19 +374,28 @@ class ScreenerDataAccess:
         """
         http = self._http()
         # Primary - Tencent 直连
-        result = vendors.tencent.fetch_spot_direct(http, market=market)
-        if result is not None and not getattr(result, "empty", True):
-            return result
+        if not self._vendor_circuit_open("tencent_spot"):
+            result = vendors.tencent.fetch_spot_direct(http, market=market)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("tencent_spot")
+                return result
+            self._note_vendor_failure("tencent_spot")
 
         # Secondary - AkShare Tencent
-        result = vendors.tencent.fetch_spot_akshare(http, market=market)
-        if result is not None and not getattr(result, "empty", True):
-            return result
+        if not self._vendor_circuit_open("tencent_spot_akshare"):
+            result = vendors.tencent.fetch_spot_akshare(http, market=market)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("tencent_spot_akshare")
+                return result
+            self._note_vendor_failure("tencent_spot_akshare")
 
         # Tertiary - AkShare Sina
-        result = vendors.sina.fetch_spot(http, market=market)
-        if result is not None and not getattr(result, "empty", True):
-            return result
+        if not self._vendor_circuit_open("sina_spot"):
+            result = vendors.sina.fetch_spot(http, market=market)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("sina_spot")
+                return result
+            self._note_vendor_failure("sina_spot")
 
         return None
 

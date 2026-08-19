@@ -1,6 +1,7 @@
 """Backup last-resort vendors: Baostock historical bars and yfinance.
 
 Extracted from ScreenerDataAccess (data_access.py) during the Phase 4 split.
+Guarded by `vendor_call` (task R3): failures logged, None contract kept.
 """
 
 from __future__ import annotations
@@ -11,63 +12,60 @@ from tradingagents.screener.ticker_formats import (
     normalize_ticker_for_yfinance,
 )
 from tradingagents.screener.vendor_http import VendorHttp
+from tradingagents.screener.vendors._guard import vendor_call
 
 __all__ = ["fetch_hist_baostock", "fetch_hist_yfinance"]
 
 
+@vendor_call("backup.fetch_hist_baostock")
 def fetch_hist_baostock(http: VendorHttp, ticker: str, start_date: str, end_date: str, adjust: str = "qfq"):
+    import baostock as bs
+
+    sym = normalize_ticker_for_baostock(ticker)
+    sd = start_date.replace("-", "")
+    ed = end_date.replace("-", "")
+
+    login_result = bs.login()
+    if login_result is None or login_result.error_code != "0":
+        return None
     try:
-        import baostock as bs
-
-        sym = normalize_ticker_for_baostock(ticker)
-        sd = start_date.replace("-", "")
-        ed = end_date.replace("-", "")
-
-        login_result = bs.login()
-        if login_result is None or login_result.error_code != "0":
+        adjflag_map = {"qfq": "3", "hfq": "2", "": "1"}
+        adjflag = adjflag_map.get(adjust, "3")
+        rs = bs.query_history_k_data_plus(
+            sym,
+            "date,open,high,low,close,volume",
+            start_date=sd,
+            end_date=ed,
+            frequency="d",
+            adjustflag=adjflag,
+        )
+        if rs is None or rs.error_code != "0":
             return None
-        try:
-            adjflag_map = {"qfq": "3", "hfq": "2", "": "1"}
-            adjflag = adjflag_map.get(adjust, "3")
-            rs = bs.query_history_k_data_plus(
-                sym,
-                "date,open,high,low,close,volume",
-                start_date=sd,
-                end_date=ed,
-                frequency="d",
-                adjustflag=adjflag,
-            )
-            if rs is None or rs.error_code != "0":
-                return None
-            data = rs.get_data()
-        finally:
-            bs.logout()
+        data = rs.get_data()
+    finally:
+        bs.logout()
 
-        if data is not None and not data.empty and len(data) > 0:
-            import pandas as pd
+    if data is not None and not data.empty and len(data) > 0:
+        import pandas as pd
 
-            data.columns = ["date", "open", "high", "low", "close", "volume"]
-            for col in ["open", "high", "low", "close", "volume"]:
-                data[col] = pd.to_numeric(data[col], errors="coerce")
-            data = data.dropna(subset=["date"])
-            data["amount"] = None
-            data = data.reset_index(drop=True)
-            return data
-        return None
-    except Exception:
-        return None
+        data.columns = ["date", "open", "high", "low", "close", "volume"]
+        for col in ["open", "high", "low", "close", "volume"]:
+            data[col] = pd.to_numeric(data[col], errors="coerce")
+        data = data.dropna(subset=["date"])
+        data["amount"] = None
+        data = data.reset_index(drop=True)
+        return data
+    return None
 
 
+@vendor_call("backup.fetch_hist_yfinance")
 def fetch_hist_yfinance(http: VendorHttp, requester, ticker: str, start_date: str, end_date: str):
-    try:
-        import yfinance as yf
+    import yfinance as yf
 
-        sym = normalize_ticker_for_yfinance(ticker)
-        ticker_obj = yf.Ticker(sym)
-        with http.spoof():
-            result = requester.request(
-                ticker_obj.history, start=start_date, end=end_date
-            )
-        return normalize_yfinance_hist_frame(result)
-    except Exception:
-        return None
+    sym = normalize_ticker_for_yfinance(ticker)
+    ticker_obj = yf.Ticker(sym)
+    with http.spoof():
+        result = requester.request(
+            ticker_obj.history, start=start_date, end=end_date
+        )
+    return normalize_yfinance_hist_frame(result)
