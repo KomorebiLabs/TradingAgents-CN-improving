@@ -191,8 +191,8 @@ from tradingagents.default_config import DEFAULT_CONFIG
 
 config = DEFAULT_CONFIG.copy()
 config["llm_provider"] = "openai"
-config["deep_think_llm"] = "gpt-5.4"
-config["quick_think_llm"] = "gpt-5.4-mini"
+config["deep_think_llm"] = "gpt-4o"
+config["quick_think_llm"] = "gpt-4o-mini"
 config["max_debate_rounds"] = 3
 
 ta = TradingAgentsGraph(
@@ -220,12 +220,12 @@ python -m tradingagents report reports/        # 直接指定目录
 
 | 提供商 | 支持模型 | 配置方式 |
 |--------|----------|----------|
-| **OpenAI** | GPT-5.5、GPT-5.5 Pro、GPT-5.4、GPT-5.4 Mini、GPT-4.1、GPT-4o | `OPENAI_API_KEY` |
-| **Google** | Gemini 3.5 Flash、Gemini 3.1 Pro、Gemini 2.5 Pro（含 Thinking 模式） | `GOOGLE_API_KEY` |
-| **Anthropic** | Claude Opus 4.8、Claude Sonnet 4.6、Claude Haiku 4.5、Claude Fable 5（含 Effort 控制） | `ANTHROPIC_API_KEY` |
-| **DeepSeek** | DeepSeek V4 Flash、V4 Pro、V3 | `DEEPSEEK_API_KEY` |
-| **Qwen（阿里云）** | Qwen3 Max/Plus/Flash、Qwen3-8B 等 | `DASHSCOPE_API_KEY` |
-| **GLM（智谱）** | GLM-5、GLM-5.1、GLM-4.7 等 | `ZHIPU_API_KEY` |
+| **OpenAI** | GPT-4o、GPT-4o-mini、GPT-4.1 | `OPENAI_API_KEY` |
+| **Google** | Gemini 2.0 Flash、Gemini 1.5 Pro、Gemini 1.5 Flash（含 Thinking 模式） | `GOOGLE_API_KEY` |
+| **Anthropic** | Claude 3.5 Sonnet、Claude 3.5 Haiku、Claude 3 Opus（含 Effort 控制） | `ANTHROPIC_API_KEY` |
+| **DeepSeek** | DeepSeek V3（deepseek-chat）、DeepSeek R1（deepseek-reasoner） | `DEEPSEEK_API_KEY` |
+| **Qwen（阿里云）** | Qwen Plus、Qwen Max、Qwen Long 等 | `DASHSCOPE_API_KEY` |
+| **GLM（智谱）** | GLM-4、GLM-4-Plus、GLM-4-Flash 等 | `ZHIPU_API_KEY` |
 | **xAI** | Grok 系列 | `XAI_API_KEY` |
 | **OpenRouter** | 100+ 模型一站式路由 | `OPENROUTER_API_KEY` |
 | **Azure OpenAI** | 企业版 GPT-4 等 | `.env.enterprise` 配置 |
