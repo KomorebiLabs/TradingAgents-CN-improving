@@ -101,3 +101,36 @@ class TestTypedVendorErrors:
         from tradingagents.dataflows.errors import VendorRateLimited
 
         assert interface._is_rate_limit_error(VendorRateLimited("throttled"))
+
+
+class TestStage2FakeSuccessVisibility:
+    """R3: placeholder/unavailable tool text must be logged (fake success visible)."""
+
+    def test_looks_like_unavailable_matches_placeholders(self):
+        assert interface._looks_like_unavailable("No fundamentals data found for symbol '600519'")
+        assert interface._looks_like_unavailable("Income statement data unavailable for 600519.SH: boom")
+        assert interface._looks_like_unavailable("No CN policy-sensitive macro events found around 2026-08-16")
+        # real content must NOT be flagged
+        assert not interface._looks_like_unavailable("# 600519 资产负债表\n\n- 资产: 100")
+        assert not interface._looks_like_unavailable("date,open,close\n2026-01-01,10,11")
+
+    def test_placeholder_text_warns(self, monkeypatch, caplog):
+        import logging
+
+        fake = lambda *a, **k: "No CN A-share data found for symbol 'sh600519' between X and Y"
+        monkeypatch.setattr(interface, "_load_attr", lambda m, a: fake)
+        with caplog.at_level(logging.WARNING):
+            result = interface.route_to_vendor("get_stock_data", "600519", "2026-01-01", "2026-01-10")
+        # contract preserved: caller still receives the text
+        assert "No CN A-share data found" in result
+        assert "placeholder/unavailable" in caplog.text
+
+    def test_normal_text_no_warning(self, monkeypatch, caplog):
+        import logging
+
+        fake = lambda *a, **k: "date,open,close\n2026-01-01,10,11"
+        monkeypatch.setattr(interface, "_load_attr", lambda m, a: fake)
+        with caplog.at_level(logging.WARNING):
+            result = interface.route_to_vendor("get_stock_data", "600519", "2026-01-01", "2026-01-10")
+        assert result.startswith("date,open,close")
+        assert "placeholder" not in caplog.text

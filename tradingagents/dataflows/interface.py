@@ -101,10 +101,29 @@ def _load_attr(module_name: str, attr_name: str):
     return getattr(module, attr_name)
 
 
+def _looks_like_unavailable(text: str) -> bool:
+    """Detect placeholder/unavailable tool output (task R3: make fake success visible).
+
+    Stage-2 vendors return human-readable strings; an empty result is NOT
+    signalled by an empty string — it comes back as "No … found/unavailable"
+    prose that a downstream LLM consumes as if it were data. Logging these
+    makes silent data loss observable.
+    """
+    low = text.strip().lower()
+    return low.startswith("no ") or "unavailable" in low
+
+
 def _lazy_callable(module_name: str, attr_name: str) -> Callable:
     def _call(*args, **kwargs):
         func = _load_attr(module_name, attr_name)
-        return func(*args, **kwargs)
+        result = func(*args, **kwargs)
+        if isinstance(result, str) and _looks_like_unavailable(result):
+            logger.warning(
+                "[dataflow:%s] returned placeholder/unavailable text (%.100s)",
+                attr_name,
+                result,
+            )
+        return result
 
     _call.__name__ = attr_name
     return _call

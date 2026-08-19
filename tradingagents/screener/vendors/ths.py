@@ -4,6 +4,7 @@ HTML-scraping constituent resolver with its concept-code lookup cache.
 Extracted from ScreenerDataAccess (data_access.py) during the Phase 4 split.
 The concept-code cache moved from instance state to module level (it is a
 pure name->code lookup; process-level sharing is safe and avoids re-fetching).
+Guarded by `vendor_call` (task R3): failures logged, None contract kept.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from typing import Dict
 
 from tradingagents.screener.response_parsers import parse_ths_board_table
 from tradingagents.screener.vendor_http import VendorHttp
+from tradingagents.screener.vendors._guard import vendor_call
 
 __all__ = [
     "fetch_concept_boards",
@@ -30,50 +32,44 @@ def reset_concept_code_cache() -> None:
     _concept_code_cache.clear()
 
 
+@vendor_call("ths.fetch_concept_boards")
 def fetch_concept_boards(http: VendorHttp):
     import akshare as ak
 
-    try:
-        http.sleep_for_vendor("ths")
-        with http.spoof():
-            df = ak.stock_board_concept_name_ths()
-        if df is not None and not df.empty:
-            df = df.copy()
-            df["source"] = "ths"
-        return df
-    except Exception:
-        return None
+    http.sleep_for_vendor("ths")
+    with http.spoof():
+        df = ak.stock_board_concept_name_ths()
+    if df is not None and not df.empty:
+        df = df.copy()
+        df["source"] = "ths"
+    return df
 
 
+@vendor_call("ths.fetch_industry_boards")
 def fetch_industry_boards(http: VendorHttp):
     import akshare as ak
 
-    try:
-        http.sleep_for_vendor("ths")
-        with http.spoof():
-            df = ak.stock_board_industry_name_ths()
-        if df is not None and not df.empty:
-            df = df.copy()
-            df["source"] = "ths"
-        return df
-    except Exception:
-        return None
+    http.sleep_for_vendor("ths")
+    with http.spoof():
+        df = ak.stock_board_industry_name_ths()
+    if df is not None and not df.empty:
+        df = df.copy()
+        df["source"] = "ths"
+    return df
 
 
+@vendor_call("ths.fetch_fund_flow")
 def fetch_fund_flow(http: VendorHttp, symbol: str = "即时", symbol_type: str = "individual"):
     import akshare as ak
 
-    try:
-        http.sleep_for_vendor("ths")
-        with http.spoof():
-            if symbol_type == "individual":
-                return ak.stock_fund_flow_individual(symbol=symbol)
-            elif symbol_type == "concept":
-                return ak.stock_fund_flow_concept(symbol=symbol)
-            elif symbol_type == "industry":
-                return ak.stock_fund_flow_industry(symbol=symbol)
-    except Exception:
-        return None
+    http.sleep_for_vendor("ths")
+    with http.spoof():
+        if symbol_type == "individual":
+            return ak.stock_fund_flow_individual(symbol=symbol)
+        elif symbol_type == "concept":
+            return ak.stock_fund_flow_concept(symbol=symbol)
+        elif symbol_type == "industry":
+            return ak.stock_fund_flow_industry(symbol=symbol)
     return None
 
 
@@ -93,6 +89,7 @@ def _resolve_concept_code(http: VendorHttp, concept_name: str) -> str | None:
                     if name and code:
                         _concept_code_cache[name] = code
         except Exception:
+            # cache warm-up failure: fall through to fuzzy match on an empty cache
             pass
 
     if concept_name in _concept_code_cache:
@@ -106,6 +103,7 @@ def _resolve_concept_code(http: VendorHttp, concept_name: str) -> str | None:
     return None
 
 
+@vendor_call("ths.fetch_concept_constituents_html")
 def fetch_concept_constituents_html(http: VendorHttp, concept_name: str, max_stocks: int = 50):
     """Fetch concept constituents by scraping the THS board detail page.
 
