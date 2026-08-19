@@ -1,8 +1,10 @@
 name: CI
 
+# Run on pull requests only: the merge gate is the pull_request check.
+# Running on push too created a second run per commit (CI / test (push)) that
+# did not match the branch-protection context "CI / test", leaving a permanently
+# "expected/waiting" status on PRs.
 on:
-  push:
-    branches: ["**"]
   pull_request:
 
 jobs:
