@@ -1,25 +1,46 @@
-# TradingAgents/graph/signal_processing.py
+# tradingagents/graph/signal_processing.py
 
-from typing import Any
+import re
+from typing import Any, Optional
+
+_DECISION_RE = re.compile(r"\b(?:BUY|OVERWEIGHT|HOLD|UNDERWEIGHT|SELL)\b", re.IGNORECASE)
+_NEGATION_HINTS = ("not", "no ", "without", "avoid")
 
 
 class SignalProcessor:
-    """Processes trading signals to extract actionable decisions."""
+    """Extract a trading decision from analyst output.
+
+    R11 structured-first: a regex-extracted decision is used when it is UNAMBIGUOUS
+    (exactly one distinct decision token, no negation nearby) — saving an LLM
+    call and making the extractor deterministic. Otherwise it falls back to the
+    LLM (existing behavior).
+    """
 
     def __init__(self, quick_thinking_llm: Any):
         """Initialize with an LLM for processing."""
         self.quick_thinking_llm = quick_thinking_llm
 
+    @staticmethod
+    def _structured_decision(full_signal: str) -> Optional[str]:
+        """Return an unambiguously present decision token, else None."""
+        text = str(full_signal)
+        matches = list(_DECISION_RE.finditer(text))
+        distinct = {m.group(0).upper() for m in matches}
+        if len(distinct) != 1:
+            return None
+        token = next(iter(distinct))
+        for m in matches:
+            before = text[max(0, m.start() - 8) : m.start()].lower()
+            if any(h in before for h in _NEGATION_HINTS):
+                return None  # e.g. "not a BUY"
+        return token
+
     def process_signal(self, full_signal: str) -> str:
-        """
-        Process a full trading signal to extract the core decision.
+        """Extract the core decision — regex-first, LLM fallback."""
+        structured = self._structured_decision(full_signal)
+        if structured:
+            return structured
 
-        Args:
-            full_signal: Complete trading signal text
-
-        Returns:
-            Extracted rating (BUY, OVERWEIGHT, HOLD, UNDERWEIGHT, or SELL)
-        """
         messages = [
             (
                 "system",
