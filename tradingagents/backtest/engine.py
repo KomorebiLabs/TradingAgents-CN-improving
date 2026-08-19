@@ -102,10 +102,15 @@ class BacktestEngine:
         pool: List[str],
         signal_date: pd.Timestamp,
         top_k: int,
+        strategy_config: Optional[Dict[str, Any]] = None,
     ) -> List[str]:
-        """Run the real TechnicalStrategy over the pool at a date; return top_k tickers."""
+        """Run the real TechnicalStrategy over the pool at a date; return top_k tickers.
+
+        ``strategy_config`` (optional) feeds TechnicalStrategy — enables
+        parameterized backtests (R9 sensitivity analysis).
+        """
         date_str = signal_date.strftime("%Y-%m-%d")
-        outcome = TechnicalStrategy(da, {}).run(pool, date_str)
+        outcome = TechnicalStrategy(da, strategy_config or {}).run(pool, date_str)
         cards = outcome.cards if hasattr(outcome, "cards") else []
         scored = sorted(
             (c for c in cards if c.screening_score is not None),
@@ -114,7 +119,7 @@ class BacktestEngine:
         )
         return [c.ticker for c in scored[:top_k]]
 
-    def run(self, pool: Optional[List[str]] = None) -> BacktestResult:
+    def run(self, pool: Optional[List[str]] = None, strategy_config: Optional[Dict[str, Any]] = None) -> BacktestResult:
         cfg = self.config
         pool = pool or build_pool(self.da, cfg.index_symbol, cfg.pool_size, cfg.seed)
 
@@ -126,7 +131,7 @@ class BacktestEngine:
         holdings: Dict[str, List[str]] = {}
         signal_log: List[Dict[str, Any]] = []
         for d in dates:
-            picked = self.select_topk(self.da, pool, d, cfg.top_k)
+            picked = self.select_topk(self.da, pool, d, cfg.top_k, strategy_config)
             holdings[d.strftime("%Y-%m-%d")] = picked
             signal_log.append({"date": d.strftime("%Y-%m-%d"), "top": picked})
 

@@ -23,6 +23,7 @@ def main(argv=None) -> int:
     parser.add_argument("--rebalance-days", type=int, default=20, help="rebalance frequency (trading days)")
     parser.add_argument("--out", default=str(_PROJECT_ROOT / "reports" / "backtest"), help="output directory")
     parser.add_argument("--smoke", action="store_true", help="tiny pool + few days for a quick smoke run")
+    parser.add_argument("--sensitivity", action="store_true", help="run R9 parameter sensitivity scan (mini backtests)")
     args = parser.parse_args(argv)
 
     from tradingagents.backtest.engine import BacktestConfig, BacktestEngine
@@ -30,6 +31,20 @@ def main(argv=None) -> int:
     from tradingagents.screener.data_access import ScreenerDataAccess
 
     da = ScreenerDataAccess({})
+    if args.sensitivity:
+        from tradingagents.backtest.sensitivity import DEFAULT_SPECS, SensitivityRunner
+
+        runner = SensitivityRunner(da, specs=DEFAULT_SPECS[:2])  # 6 mini backtests
+        print("[backtest] sensitivity scan: 2 params x 3 values (6 mini backtests)", flush=True)
+        rows = runner.run_all()
+        md = runner.report(rows)
+        out_path = Path(args.out) / "sensitivity.md"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(md, encoding="utf-8")
+        print(md)
+        print(f"[backtest] sensitivity report -> {out_path}")
+        return 0
+
     cfg = BacktestConfig(
         start_date=args.start,
         end_date=args.end,
