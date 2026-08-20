@@ -90,6 +90,8 @@ def _get_cn_hist_data(
         if "Date" in df.columns:
             df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
             df = df.dropna(subset=["Date"])
+            # Defensive post-fetch clamp: a vendor may ignore the requested end date.
+            df = df[df["Date"] <= pd.Timestamp(end_date)]
 
         for col in ["Open", "High", "Low", "Close", "Volume"]:
             if col in df.columns:
