@@ -38,6 +38,12 @@ TradingAgents 是由 [Tauric Research](https://github.com/TauricResearch) 开发
 >
 > 深入阅读：[系统架构与数据流](docs/architecture.md) · [AI Agent 面试导航](docs/interview-notes.md)
 
+## 🧭 Point-in-time 历史数据审计
+
+技术指标路径已增加历史截止日防御，并完成工具族审计矩阵；本阶段**没有宣称所有供应商都通过了历史披露时点验证**。财务快照、公告时间和供应商数据修订仍需后续治理。
+
+详见：[Point-in-time 审计表](docs/point-in-time-audit.md)
+
 ## 开发阶段一览
 
 | Phase | 名称 | 状态 | 说明 |
