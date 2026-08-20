@@ -12,6 +12,32 @@ TradingAgents 是由 [Tauric Research](https://github.com/TauricResearch) 开发
 
 ---
 
+## 🚀 项目亮点（均为真实验证产物）
+
+> 下面的数字来自仓库内真实运行产物（`pytest` 输出 / `reports/` 下回测与敏感性报告），可复现；每个指标都标注其边界。
+
+| 维度 | 亮点 | 边界 |
+|---|---|---|
+| **回测引擎** | 技术因子信号 · CSI300 之 80 只池 · 月度再平衡 top5 → **总收益 82.86% / 夏普 2.17 / 超额 +56.57%**（12 个月，含 CSI300 对比） | 单段窗口、未计交易成本、仅技术因子可回溯（见 `reports/backtest/`） |
+| **参数敏感性** | 动量权重 −22% → 收益腰斩（30.9%），趋势对齐权重正向敏感——**"感觉合理"的参数有了实测依据** | 小池 mini 回测，见 `reports/sensitivity.md` |
+| **测试护栏** | **439 个离线测试**（无网络无 LLM）：merger golden/parity、回测净值数学、供应商健康、接口路由、图拓扑分解 | 冻结行为为主 |
+| **数据可靠性** | 供应商失败/耗时/错误**逐供应商健康监控** + 反爬重试（连接类重试、**429/403 绝不重试**）+ 熔断降级 + 假成功可见化 | 免费数据源本身有漂移风险 |
+| **工程重构** | 六大千行文件拆解（merger 1050 / reflection 1302 / memory 1124 / data_access 1905 / akshare_interface 1619 / agent_utils 944）→ 单向依赖分层 `cli→application→graph→ports→dataflows` | 公开 API 零改动，等价性由 parity 测试证明 |
+
+## 🤖 AI Agent / LLM 工程视角
+
+这个项目的核心不只是“多个 Agent 协作”，而是把多智能体流程做成了可观察、可测试、可演进的工程系统：
+
+- **LangGraph 状态编排**：用 `StateGraph` 管理 Analyst → Research → Trader → Risk → Portfolio 的阶段交接和条件路由；
+- **canonical AgentState**：用结构化状态块统一报告、辩论和决策数据，legacy 平铺字段只作为迁移期兼容镜像；
+- **Tool / Port / Dataflows 分层**：Agent 通过能力接口访问数据，不直接绑定具体供应商，测试可以注入 stub；
+- **Application Events + Harness**：将图 chunk 转成稳定事件，统一承载 Agent 状态、工具调用、Token、成本、延迟和错误信息；
+- **增量重构护栏**：通过 contract、golden、parity 和依赖图测试，在不改变公开行为的前提下铲除历史入口分叉和 God Class。
+
+> 当前材料明确区分代码能力、离线验证和业务证据；**不把未执行的真实 API 端到端运行、消融实验或正确性评测写成已验证结果**。
+>
+> 深入阅读：[系统架构与数据流](docs/architecture.md) · [AI Agent 面试导航](docs/interview-notes.md)
+
 ## 开发阶段一览
 
 | Phase | 名称 | 状态 | 说明 |
