@@ -65,7 +65,15 @@ df = df[df["Date"] <= pd.Timestamp(end_date)]
 
 新闻路径原本已有输出级日期过滤，本阶段补充 fixture 测试，确保截止日之后的新闻不会进入 LLM 可见结果。
 
-## 5. 什么还不能声称
+## 5. Tool contract 覆盖
+
+[`tests/test_tool_contracts.py`](../tests/test_tool_contracts.py) 在 Tool wrapper → `route_to_vendor` 和 router → provider loader 两层使用离线 stub 验证日期参数不会丢失：
+
+- Technical indicator 工具保留 `symbol / indicator / curr_date / look_back_days`；
+- Stock news 工具保留 `ticker / start_date / end_date`；
+- 测试不初始化任何真实 provider，不能据此推断供应商实际数据质量。
+
+## 6. 什么还不能声称
 
 本审计**不能**声称：
 
@@ -89,7 +97,7 @@ df = df[df["Date"] <= pd.Timestamp(end_date)]
 
 前者只说明报表描述的期间没有超过目标日期，后者才接近真实历史可用信息。当前项目没有把二者混为一谈。
 
-## 6. 下一步治理建议
+## 7. 下一步治理建议
 
 1. 为财务工具找到包含公告时间的历史接口或本地快照；
 2. 将 `curr_date` 作为显式、命名的 as-of 参数传到各 provider adapter，而不是复用 `limit` 等位置参数；
@@ -97,7 +105,7 @@ df = df[df["Date"] <= pd.Timestamp(end_date)]
 4. 在 point-in-time 审计通过后，再运行小规模正确性评测；
 5. 在多窗口回测和成本敏感性完成前，不把单窗口 `82.86%` 写成策略预测能力。
 
-## 7. 证据来源
+## 8. 证据来源
 
 - 技术截止实现：[`tradingagents/dataflows/cn_indicators.py`](../tradingagents/dataflows/cn_indicators.py)
 - Port 契约：[`tradingagents/ports/market_data.py`](../tradingagents/ports/market_data.py)
