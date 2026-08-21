@@ -9,6 +9,7 @@ from tradingagents.eval.matrix import (
     DECISIONS,
     confusion_matrix,
     directional_stats,
+    normalize_decision,
     overall_accuracy,
 )
 
@@ -18,9 +19,15 @@ def build_report(
     results: List[Dict[str, Any]],
     horizon_days: int = 20,
     note: str = "",
+    *,
+    framework_ready: bool = True,
+    real_model_run: bool = False,
 ) -> str:
     labels = [r["label"] for r in results]
-    preds = [r["decision"] for r in results]
+    preds = [
+        r.get("normalized_decision", normalize_decision(r.get("decision")))
+        for r in results
+    ]
     matrix = confusion_matrix(labels, preds)
     overall = overall_accuracy(matrix)
     directional = directional_stats(matrix)
@@ -30,6 +37,7 @@ def build_report(
     lines.append(
         f"- True labels: BUY forward-return ≥ +{BUY_THRESHOLD:.0%}, SELL ≤ {SELL_THRESHOLD:.0%}, else NEUTRAL"
     )
+    lines.append(f"- Framework ready: {framework_ready} | Real model run: {real_model_run}")
     if note:
         lines.append(f"- {note}")
     lines.append("")
@@ -57,6 +65,11 @@ def build_report(
         "- This is a **correctness baseline** LLM unit tests cannot provide "
         "(they freeze behavior; this checks whether decisions align with subsequent outcomes)."
     )
+    if not real_model_run:
+        lines.append(
+            "- **Real model run: false** — the numbers above reflect offline "
+            "framework/matrix validation, not an LLM benchmark result."
+        )
     lines.append(
         "- A market-neutral random douze would score ~50% directional; above that suggests signal, "
         "below suggests the pipeline adds noise. Small-N results are indicative only."

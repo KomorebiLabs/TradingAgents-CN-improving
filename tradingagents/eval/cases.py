@@ -100,8 +100,9 @@ def build_case_set(
 
     if not tickers:
         return []
+    unique = sorted(set(tickers))
     rng = np.random.RandomState(seed)
-    picked = rng.choice(sorted(set(tickers)), size=min(n, len(tickers)), replace=False).tolist()
+    picked = rng.choice(unique, size=min(n, len(unique)), replace=False).tolist()
     cases: List[EvaluationCase] = []
     for i, ticker in enumerate(picked):
         ret = _forward_return(data_access, ticker, eval_date, horizon_days)

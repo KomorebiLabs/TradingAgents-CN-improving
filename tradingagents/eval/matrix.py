@@ -8,12 +8,30 @@ DECISIONS = ["BUY", "HOLD", "SELL"]
 LABELS = ["BUY", "SELL", "NEUTRAL"]
 
 
+def normalize_decision(value: object) -> str:
+    """Normalize model output into the evaluator's decision vocabulary.
+
+    Unknown, empty, and missing outputs are treated as HOLD so the matrix
+    remains total; callers can inspect the raw decision in the run record.
+    """
+    normalized = str(value or "").strip().upper()
+    return normalized if normalized in DECISIONS else "HOLD"
+
+
+def decision_warning(value: object) -> str | None:
+    """Return an audit warning when a raw model decision is not recognized."""
+    normalized = str(value or "").strip().upper()
+    if normalized in DECISIONS:
+        return None
+    return f"Unknown decision normalized to HOLD: {value!r}"
+
+
 def confusion_matrix(true_labels: list, predictions: list) -> Dict[str, Dict[str, int]]:
     """Build {true_label: {predicted: count}} (rows=ground truth, cols=prediction)."""
     m: Dict[str, Dict[str, int]] = {t: {p: 0 for p in DECISIONS} for t in LABELS}
     for label, pred in zip(true_labels, predictions):
         label = label if label in LABELS else "NEUTRAL"
-        pred = pred if pred in DECISIONS else "HOLD"
+        pred = normalize_decision(pred)
         m[label][pred] += 1
     return m
 
