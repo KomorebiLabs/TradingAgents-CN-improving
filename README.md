@@ -6,7 +6,7 @@
 
 # TradingAgents-CN — 面向 A 股的多智能体 LLM 交易框架
 
-> **版本：** v0.2.3 · **定位：** 基于开源 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（~76k★）的 A 股深度定制 + 面向二开的架构治理
+> **版本：** v0.2.3 · **定位：** 基于开源 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（~99k★）的 A 股深度定制 + 面向二开的架构治理
 > **测试护栏：** 453 个离线测试全绿（无网络、无 LLM）· **文档：** [架构](docs/architecture.md) · [面试导航](docs/interview-notes.md)
 
 TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易框架**：先用 Screener 从数千只股票中筛选候选，再用 LangGraph 编排的「分析师 → 多空辩论 → 交易员 → 风控辩论」多智能体流程对候选做深度分析，输出 BUY / HOLD / SELL 决策。
