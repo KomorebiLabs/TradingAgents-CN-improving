@@ -6,7 +6,7 @@
 
 # TradingAgents-CN — 面向 A 股的多智能体 LLM 交易框架
 
-> **版本：** v0.2.3 · **定位：** 基于开源 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（~76k★）的 A 股深度定制 + 面向二开的架构治理
+> **版本：** v0.2.3 · **定位：** 基于开源 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（~99k★）的 A 股深度定制 + 面向二开的架构治理
 > **测试护栏：** 453 个离线测试全绿（无网络、无 LLM）· **文档：** [架构](docs/architecture.md) · [面试导航](docs/interview-notes.md)
 
 TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易框架**：先用 Screener 从数千只股票中筛选候选，再用 LangGraph 编排的「分析师 → 多空辩论 → 交易员 → 风控辩论」多智能体流程对候选做深度分析，输出 BUY / HOLD / SELL 决策。
@@ -32,6 +32,8 @@ TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易
 
 用 **LangGraph 状态编排**管理多阶段交接与条件路由；用 **canonical AgentState**（结构化块权威、平铺字段降级兼容镜像）消除"同一数据两套形状"的迁移陷阱；用 **Tool / Port / Dataflows 分层**隔离数据能力与具体供应商；用 **Application Events（9 种执行事件）+ Harness** 把图 chunk 转为稳定事件，统一承载状态、工具调用、Token、成本与错误；用 **contract / golden / parity / 依赖图测试**在不改动公开行为的前提下铲除历史入口分叉与 God Class。
 
+**Agent 可靠性与评测：** 通过离线 Tool Contract 测试约束工具参数转发、时间边界与失败语义；通过 point-in-time 审计约束 Agent 数据 grounding；评测框架支持决策归一化、混淆矩阵、方向准确率与运行元数据，并显式区分 `framework_ready` 与 `real_model_run`——**不把未运行的真实 API / 模型评测写成已验证结果**。
+
 > 证据边界声明：本项目明确区分**代码能力 / 离线验证 / 业务证据**——不把未执行的真实 API 端到端运行、消融实验或正确性评测写成已验证结果。详见 [架构与证据标签](docs/architecture.md)。
 
 ---
@@ -43,10 +45,11 @@ TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易
 | 回测闭环 | 信号驱动回测引擎 + 市场分析报告（绩效、资金曲线、csv） | `python -m tradingagents.backtest` / `reports/backtest/` |
 | 参数敏感性 | 二参数十扰动 mini 回测表，量化权重敏感度 | `python -m tradingagents.backtest --sensitivity` / `reports/sensitivity.md` |
 | 多智能体消融 | 分析师数 × 辩论深度的对照框架，量化决策一致性与成本 | `python -m tradingagents.ablation` |
-| 正确性评测集 | 已实现已知结局案例、混淆矩阵与方向准确率的评测框架；**本轮未实跑** | `python -m tradingagents.eval` |
+| 正确性评测集 | 已知结局案例 → 混淆矩阵 + 方向准确率；决策归一化、评测元数据与 `real_model_run` 边界已建立；**本轮未实跑** | `python -m tradingagents.eval` |
 | 数据可靠性 | 供应商健康监控 + 反爬重试 + 熔断 + 假成功可见化 | `tradingagents/screener/vendors/_guard.py` 等 |
 | Point-in-time 审计 | 技术指标路径已增加历史截止日防御，并完成工具族审计矩阵；**没有宣称所有供应商都通过历史披露时点验证** | [审计表](docs/point-in-time-audit.md) |
-| 成本估算 | LLM token 成本（$/MTok）估算 + 结构化决策提取（正则优先省调用） | `tradingagents/llm_clients/cost.py` 等 |
+| 工具契约 | Tool wrapper → 路由 → provider 的参数转发、时间边界与失败语义有离线契约测试，避免日期参数丢失/错位 | `tests/test_tool_contracts.py` |
+| LLM 成本估算 | LLM token 成本（$/MTok）+ 结构化决策提取（正则优先省调用）+ 可选缓存（命中/未命中可观测） | `tradingagents/llm_clients/cost.py`、`cache.py` |
 
 ---
 
