@@ -289,9 +289,49 @@ Skill 注入和使用审计
 - 成本、延迟和错误可以和最终决策关联；
 - 业务层可以在没有 UI 的情况下执行 `AnalysisService.run()`。
 
+### 6.4 LLM 运行经济性与交易成本分开
+
+项目明确区分两类"成本"，不要让面试叙事混淆：
+
+```text
+LLM cost     = Token 消耗、模型单价、调用次数、缓存命中/未命中、延迟
+Trading cost = 手续费、滑点、印花税、换手率（回测场景的金融成本）
+```
+
+`CostTracker` 累计 Token 使用量，`llm_clients/cost.py` 提供模型单价估算，`llm_clients/cache.py` 提供可观测的命中/未命中统计。这些属于 Agent 运行经济性，可以在离线环境用契约测试验证；交易成本显式化是回测治理的后续工作，不属于本 Agent 工程叙事。
+
 ---
 
-## 7. Screener 与 Analyzer 的边界
+## 7. Agent Evaluation 与 Tool Reliability
+
+### 7.1 评测框架不是"跑完模型就出数字"
+
+`tradingagents/eval/` 是决策正确性评测集：用已知结局的历史案例（forward-return 生成真实标签）跑完整决策链，产出混淆矩阵、方向准确率和整体准确率。关键边界是：
+
+- `build_case_set` 用确定性 seed 抽样、去重并封顶 n，保证可复现；
+- 标签由 `eval_date` 之后的历史价格计算，**只用于评判，不进入 Agent 的 request**；
+- Agent 的 request 严格使用 `eval_date` 作为 `trade_date`，避免标签泄漏；
+- 每条评测记录保留 raw/normalized decision、归一化 warning、confidence、Token、tool calls、latency、warnings、provider 等元数据；
+- 报告显式渲染 `framework_ready` 与 `real_model_run`，`real_model_run=false` 时明确标注"非 LLM benchmark 结果"。
+
+评测数学（决策归一化、混淆矩阵、方向/整体准确率）有离线测试；真实模型运行需要 API key 和预算，不在本阶段宣称结果。
+
+### 7.2 Tool Contract：参数、时间边界与失败语义
+
+Agent 工具通过 `route_to_vendor` 选择实现，日期等关键参数必须原样传递到 provider。离线契约测试（`tests/test_tool_contracts.py`）在两层 stub 上验证：
+
+1. **Tool wrapper → router**：`get_indicators` 的 `curr_date`、`get_news` 的 `start_date/end_date` 不被丢失或错位；
+2. **router → provider loader**：参数按位置原样到达底层实现。
+
+这是时间 grounding 的工程化保障：Agent 声称"截至某日"的分析，工具链必须真的把该日期传给数据源，并在返回结果上做二次过滤（见 point-in-time 审计）。
+
+### 7.3 失败语义可观察
+
+`VendorError` 层级（`VendorUnavailable / VendorRateLimited / DataNotFound / VendorSchemaChanged`）让预期失败有名字；反爬重试对连接类错误重试、对 429/403 不重试；假成功的占位文本会被记录。宽泛捕获的逐链路类型化仍是后续治理项，不应在叙事中宣称全部完成。
+
+---
+
+## 8. Screener 与 Analyzer 的边界
 
 ### Screener：候选发现
 
@@ -321,11 +361,11 @@ Analyzer 接收单只股票、日期、选中的分析师和研究配置，使�
 
 ---
 
-## 8. “铲屎山”重构：从长文件到可验证边界
+## 9. “铲屎山”重构：从长文件到可验证边界
 
 这段工作的技术价值不在于删除了多少行，而在于先找到承重墙，再按依赖关系逐步收口。
 
-### 8.1 诊断：表面症状背后的根因
+### 9.1 诊断：表面症状背后的根因
 
 历史诊断发现的问题包括：
 
@@ -339,7 +379,7 @@ Analyzer 接收单只股票、日期、选中的分析师和研究配置，使�
 
 诊断报告是重构前的历史基线，不应把其中早期的测试数量或异常数量当作当前状态。
 
-### 8.2 收口顺序
+### 9.2 收口顺序
 
 ```text
 先让入口可预测
@@ -351,7 +391,7 @@ Analyzer 接收单只股票、日期、选中的分析师和研究配置，使�
 
 这个顺序的理由是：如果入口会静默换引擎，就无法判断后续重构到底运行了哪份代码；如果图驱动器有三份，新增状态字段和事件就必须同步三处；只有先收口执行边界，状态和数据层的测试才有可信上下文。
 
-### 8.3 四个可复述的案例
+### 9.3 四个可复述的案例
 
 #### 案例一：静默 ImportError fallback
 
@@ -377,9 +417,9 @@ Analyzer 接收单只股票、日期、选中的分析师和研究配置，使�
 
 治理方式是引入 `MarketDataPort`、打断依赖环，再将门面拆成 capability、vendor、parser、ticker format 和 HTTP politeness 等边界。施工记录中公开方法、签名、返回值和 fallback 顺序保持不变，避免“重构”变成行为重写。
 
-### 8.4 验证策略
+### 9.4 验证策略
 
-重构采用逐阶段离线护栏，而不是一次性大迁移。施工记录记录了从入口和图流测试，到 canonical state、依赖图、Port、解析器、Application Contract 和事件协议的逐步增加；交接报告随后记录总测试护栏达到 439 个。
+重构采用逐阶段离线护栏，而不是一次性大迁移。施工记录记录了从入口和图流测试，到 canonical state、依赖图、Port、解析器、Application Contract 和事件协议的逐步增加；交接报告随后记录测试护栏达到 439 个，并在评测契约与工具契约收口后增长到 453 个。
 
 这里的证据证明的是：
 
@@ -391,7 +431,7 @@ Analyzer 接收单只股票、日期、选中的分析师和研究配置，使�
 
 ---
 
-## 9. 当前证据与限制
+## 10. 当前证据与限制
 
 ### 已有证据
 
@@ -428,7 +468,7 @@ Analyzer 接收单只股票、日期、选中的分析师和研究配置，使�
 
 ---
 
-## 10. 面试时的 5 分钟讲解顺序
+## 11. 面试时的 5 分钟讲解顺序
 
 1. **先讲问题**：系统原本不是“代码少”，而是入口、状态和数据边界不可预测；
 2. **再讲架构**：Application Contract → LangGraph → AgentState → Tools / Ports → Dataflows；
