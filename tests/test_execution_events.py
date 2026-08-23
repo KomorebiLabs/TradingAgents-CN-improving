@@ -151,3 +151,27 @@ class TestMetrics:
 
     def test_no_provider_no_metrics(self):
         assert not [e for e in _events_of(ChunkEventTranslator(), {}) if isinstance(e, MetricsUpdated)]
+
+
+class TestSpeakerPrefixStripped:
+    """Real-run regression: risk debaters open with their own name
+    ("Aggressive Analyst: ..."), which duplicated the "### {agent}" heading
+    in final_trade_decision.md. The translator must strip the byline."""
+
+    def test_risk_speaker_prefix_not_duplicated(self):
+        translator = ChunkEventTranslator()
+        chunk = {"risk_debate_state": {"aggressive_history": "Aggressive Analyst: BLAH"}}
+        events = _events_of(translator, chunk)
+        assert ReportSectionUpdated("final_trade_decision", "### Aggressive Analyst\nBLAH") in events
+
+    def test_risk_content_without_prefix_unchanged(self):
+        translator = ChunkEventTranslator()
+        chunk = {"risk_debate_state": {"aggressive_history": "plain take"}}
+        events = _events_of(translator, chunk)
+        assert ReportSectionUpdated("final_trade_decision", "### Aggressive Analyst\nplain take") in events
+
+    def test_judge_prefix_stripped(self):
+        translator = ChunkEventTranslator()
+        chunk = {"risk_debate_state": {"judge_decision": "Portfolio Manager: FINAL"}}
+        events = _events_of(translator, chunk)
+        assert ReportSectionUpdated("final_trade_decision", "### Portfolio Manager\nFINAL") in events

@@ -369,7 +369,8 @@ class GraphSetup:
         self._skill_injector = skill_injector
 
     def setup_graph(
-        self, selected_analysts=["market", "social", "news", "fundamentals"]
+        self, selected_analysts=["market", "social", "news", "fundamentals"],
+        checkpointer=None,
     ):
         """Set up and compile the agent workflow graph.
 
@@ -379,6 +380,10 @@ class GraphSetup:
         Args:
             selected_analysts (list): analyst types to include
                 ("market" / "social" / "news" / "fundamentals").
+            checkpointer: optional LangGraph checkpointer enabling resume —
+                completed super-steps are persisted under the run's thread_id
+                so a crashed run continues from the last finished node
+                instead of restarting (and re-billing) from scratch.
         """
         # ─────────────────────────────────────────────────────────────────
         # 第一步：校验 - 确保至少选择一个分析师
@@ -397,7 +402,7 @@ class GraphSetup:
         self._wire_research_debate(workflow)
         self._wire_orchestration_routing(workflow)
         self._wire_risk_debate(workflow)
-        return workflow.compile()
+        return workflow.compile(checkpointer=checkpointer)
 
     def _create_analyst_nodes(self, selected_analysts):
         """Build the per-analyst node/delete/tool dicts for selected analysts."""
@@ -499,7 +504,6 @@ class GraphSetup:
 
     def _add_orchestration_nodes(self, workflow):
         """Register the phase routers, risk finalizer and handoff summarizers."""
-        workflow = StateGraph(AgentState)
         workflow.add_node("Route Research Phase", create_orchestration_router("analyst", "research"))
         workflow.add_node("Route Trader Phase", create_orchestration_router("research", "trader"))
         workflow.add_node("Route Risk Phase", create_orchestration_router("trader", "risk"))
