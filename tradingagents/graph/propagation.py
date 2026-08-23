@@ -30,6 +30,7 @@ from tradingagents.agents.utils.agent_states import (
     STATE_SCHEMA_VERSION,
 )
 from tradingagents.agents.utils.agent_utils import build_instrument_profile, validate_semantic_prompt_slots
+from tradingagents.default_config import DEFAULT_CONFIG
 
 
 class Propagator:
@@ -181,7 +182,7 @@ class Propagator:
                 "final_route": "",
                 "final_reason": "",
                 "context_budget_tokens": 24000,
-                "compression_threshold_tokens": 18000,
+                "compression_threshold_chars": DEFAULT_CONFIG.get("orchestration_compression_threshold_chars", 36000),
                 "compression_notes": "",
                 "compression_required": False,
                 "selected_analysts": selected_analysts,

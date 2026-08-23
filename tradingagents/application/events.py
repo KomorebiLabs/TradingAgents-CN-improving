@@ -199,6 +199,20 @@ class ChunkEventTranslator:
                     events.append(ToolCallObserved(name=name, args_repr=args_repr))
 
         events.extend(self._analyst_status_events(chunk, selected_analysts, selected_set))
+        # A4: verification summary becomes its own report artifact
+        verification = chunk.get("verification")
+        if isinstance(verification, dict):
+            total = verification.get("claims_total", 0)
+            if total and total != getattr(self, "_last_verification_total", None):
+                self._last_verification_total = total
+                events.append(ReportSectionUpdated(
+                    section_key="verification_summary",
+                    content=str(verification.get("summary", "")),
+                ))
+                events.append(TimelineNoted(
+                    text=f"Evidence verified {verification.get('verified', 0)}/{total} numeric claims"
+                ))
+
         events.extend(self._debate_events(chunk))
         events.extend(self._metrics_events())
         return events
@@ -281,6 +295,13 @@ class ChunkEventTranslator:
                     self.agent_status["Trader"] = "in_progress"
                 events.append(TimelineNoted(text="Research complete, Trader started"))
                 events.append(StageMarked(stage="Stage C"))
+
+        # A2: convergence judgments surface on the dashboard timeline
+        debate_score = (debate or {}).get("convergence_score")
+        if debate_score is not None and debate_score != getattr(self, "_last_convergence", None):
+            self._last_convergence = debate_score
+            tag = "converged-early-stop" if debate_score <= 2 else "escalate" if debate_score >= 4 else "neutral"
+            events.append(TimelineNoted(text=f"Debate convergence: score={debate_score} ({tag})"))
 
         # Trader
         trader_plan = decision_blocks.get("trader_plan") or chunk.get("trader_investment_plan")

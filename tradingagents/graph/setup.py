@@ -83,6 +83,8 @@ from tradingagents.agents.utils.state_helpers import (
     extract_semantic_trigger_audit,
 )
 
+from tradingagents.dataflows.config import get_config
+
 from .conditional_logic import ConditionalLogic
 
 
@@ -94,7 +96,10 @@ def create_orchestration_router(source_phase: str, default_next_stage: str):
             or state.get("screener_context", {}).get("semantic_prompt_slots", {})
             or {}
         )
-        threshold = int(orchestration.get("compression_threshold_tokens", 18000))
+        threshold = int(orchestration.get(
+            "compression_threshold_chars",
+            get_config().get("orchestration_compression_threshold_chars", 36000),
+        ))
         existing_next_stage = orchestration.get("next_stage")
         existing_notes = str(orchestration.get("compression_notes", "")).strip()
         route_decision = dict(state.get("route_decision", {}) or orchestration.get("route_decision", {}) or {})
@@ -129,7 +134,7 @@ def create_orchestration_router(source_phase: str, default_next_stage: str):
         applied_controls.update(
             {
                 "source_phase": source_phase,
-                "compression_threshold_tokens": threshold,
+                "compression_threshold_chars": threshold,
                 "estimated_context": estimated_context,
                 "wants_handoff": wants_handoff,
             }
@@ -257,6 +262,119 @@ def create_phase_handoff_node(source_phase: str, next_stage: str, llm: Any):
         }
 
     return handoff_node
+
+
+_CONVERGENCE_SPEECH_BUDGET = 8000  # chars per side; beyond this, head+tail sampling
+_CONVERGENCE_RE = None  # compiled lazily to keep module import cheap
+
+
+def _latest_turn(history: str, marker: str) -> str:
+    """Extract the most recent speech from an accumulated debate history."""
+    if not history:
+        return ""
+    parts = history.split("\n" + marker)
+    return marker + parts[-1] if parts[-1] else history[-_CONVERGENCE_SPEECH_BUDGET:]
+
+
+def _truncate_speech(text: str, budget: int = _CONVERGENCE_SPEECH_BUDGET):
+    """Head 30% + tail 60% with an explicit omission marker (A2 rule).
+
+    Rebuttals cluster at the end of a speech (quote-then-refute), hence the
+    tail-heavy split. Returns (text, truncated) — the caller must floor the
+    divergence score at 3 when truncated: no early stop on partial evidence.
+    """
+    if len(text) <= budget:
+        return text, False
+    head, tail = int(budget * 0.3), int(budget * 0.6)
+    omitted = len(text) - head - tail
+    return f"{text[:head]}\n[已省略 {omitted} 字符]\n{text[-tail:]}", True
+
+
+def create_debate_convergence_node(llm: Any):
+    """A2: convergence-driven debate stopping.
+
+    Runs after every completed Bull+Bear round. A quick-model judge scores
+    divergence 1-5 by the operational criterion "does an unanswered core
+    rebuttal remain?" — NOT tone. Design rules:
+    - full speeches within budget; explicit marker + score floor 3 if truncated;
+    - parse failure / disabled config -> neutral score 3 (falls back to
+      round-count routing);
+    - every judgment lands in orchestration.convergence_log for audit.
+    """
+    import re
+
+    from tradingagents.dataflows.config import get_config
+
+    def convergence_node(state: AgentState):
+        debate = dict(state.get("investment_debate_state", {}) or {})
+        if not get_config().get("convergence_check", True):
+            return {}  # feature flag off: routing falls back to round counts
+
+        bull_speech, bull_trunc = _truncate_speech(
+            _latest_turn(debate.get("bull_history", ""), "Bull Analyst: ")
+        )
+        bear_speech, bear_trunc = _truncate_speech(
+            _latest_turn(debate.get("bear_history", ""), "Bear Analyst: ")
+        )
+
+        prompt = (
+            "You are a debate convergence judge. Two analysts have debated an "
+            "investment. Score their divergence 1-5 using ONE criterion: does a "
+            "CORE rebuttal remain unanswered? (1-2 = core points addressed, "
+            "positions converged; 3 = mixed or uncertain; 4-5 = significant "
+            "unanswered core rebuttals remain). Judge substance, not tone or "
+            "length. If parts were omitted, be conservative.\n\n"
+            f"Latest Bull argument:\n{bull_speech}\n\n"
+            f"Latest Bear argument:\n{bear_speech}\n\n"
+            'Respond ONLY with: <convergence score="N" divergences="..." '
+            'consensus="..."/> where divergences lists unanswered core '
+            "rebuttals (empty if converged) and consensus lists points both "
+            "sides already agree on."
+        )
+
+        score, divergences, consensus = 3, "", ""
+        truncated = bull_trunc or bear_trunc
+        try:
+            response = llm.invoke(prompt)
+            text = str(getattr(response, "content", response))
+            match = re.search(
+                r'<convergence\s+score\s*=\s*"?(\d)"?', text
+            )
+            if match:
+                score = min(5, max(1, int(match.group(1))))
+            div = re.search(r'divergences\s*=\s*"([^"]*)"', text)
+            con = re.search(r'consensus\s*=\s*"([^"]*)"', text)
+            divergences = div.group(1) if div else ""
+            consensus = con.group(1) if con else ""
+        except Exception:
+            score, divergences, consensus = 3, "", ""  # neutral: no routing change
+
+        if truncated and score < 3:
+            score = 3  # never early-stop on partial evidence (A2 hard rule)
+
+        debate["convergence_score"] = score
+        debate["convergence_divergences"] = divergences
+        debate["convergence_consensus"] = consensus
+        log = list(debate.get("convergence_log") or [])
+        log.append({
+            "count": debate.get("count", 0),
+            "score": score,
+            "truncated": truncated,
+            "divergences": divergences,
+            "consensus": consensus,
+        })
+        debate["convergence_log"] = log
+
+        orchestration = dict(state.get("orchestration", {}) or {})
+        orchestration["convergence_log"] = log
+
+        return {
+            "investment_debate_state": debate,
+            "orchestration": orchestration,
+            "sender": "Debate Convergence Check",
+        }
+
+    return convergence_node
 
 
 def create_risk_finalize_node():
@@ -528,8 +646,17 @@ class GraphSetup:
             # 工具节点，用于获取外部数据
             workflow.add_node(f"tools_{analyst_type}", tool_nodes[analyst_type])
 
+        # A4: pure-program evidence verification runs after the analyst
+        # chain, before anything downstream consumes the reports.
+        from tradingagents.agents.utils.evidence_verifier import run_verification
+        workflow.add_node("Evidence Verifier", lambda state: run_verification(state))
+
         workflow.add_node("Bull Researcher", agents["bull"])
         workflow.add_node("Bear Researcher", agents["bear"])
+        workflow.add_node(
+            "Debate Convergence Check",
+            create_debate_convergence_node(self.quick_thinking_llm),
+        )
         workflow.add_node("Research Manager", agents["research_manager"])
         workflow.add_node("Trader", agents["trader"])
         workflow.add_node("Aggressive Analyst", agents["aggressive"])
@@ -558,12 +685,18 @@ class GraphSetup:
                 next_analyst = f"{selected_analysts[i+1].capitalize()} Analyst"
                 workflow.add_edge(current_clear, next_analyst)
             else:
-                workflow.add_edge(current_clear, "Route Research Phase")
+                workflow.add_edge(current_clear, "Evidence Verifier")
+
+        workflow.add_edge("Evidence Verifier", "Route Research Phase")
 
     def _wire_research_debate(self, workflow):
-        """Bull/Bear debate loop, Research Manager -> Route Trader Phase."""
-        # 【多空辩论条件边】
-        # Add remaining edges
+        """Bull/Bear debate loop with convergence-driven stopping (A2).
+
+        Flow: Bull → (router) → Bear → Debate Convergence Check →
+        (convergence router: continue with Bull | conclude with Research
+        Manager). The convergence router reads the score the check node just
+        wrote; missing/neutral score (3) falls back to round-count logic.
+        """
         # Bull Researcher → (Bear Researcher 或 Research Manager)
         workflow.add_conditional_edges(
             "Bull Researcher",
@@ -573,10 +706,12 @@ class GraphSetup:
                 "Research Manager": "Research Manager",
             },
         )
-        # Bear Researcher → (Bull Researcher 或 Research Manager)
+        # Bear Researcher 完成一轮 → 收敛判定节点（A2）
+        workflow.add_edge("Bear Researcher", "Debate Convergence Check")
+        # 收敛判定 → (继续加轮 Bull 或 裁决 Research Manager)
         workflow.add_conditional_edges(
-            "Bear Researcher",
-            self.conditional_logic.should_continue_debate,
+            "Debate Convergence Check",
+            self.conditional_logic.should_continue_after_convergence,
             {
                 "Bull Researcher": "Bull Researcher",
                 "Research Manager": "Research Manager",

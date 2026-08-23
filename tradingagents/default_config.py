@@ -22,6 +22,15 @@ DEFAULT_CONFIG = {
     "max_debate_rounds": 1,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
+    # A2: convergence-driven debate stopping (score <=2 early stop, >=4 adds a
+    # round, capped at max_debate_rounds + 2). False = pure round-count routing.
+    "convergence_check": True,
+    # A3: context-compression trigger, measured in CHARACTERS (the old field
+    # name said "tokens" while the router counts chars — a unit lie, fixed).
+    # 36000 is a PROVISIONAL anchor from one real run; recalibrate from the
+    # P75 of reports/<run_id>/context_stats.json once ~10 runs accumulate.
+    "orchestration_compression_threshold_chars": 36000,
+
     # Experimental prompt controls
     "enable_confidence_score": False,
     # Instrument profiling and skill-mounting controls

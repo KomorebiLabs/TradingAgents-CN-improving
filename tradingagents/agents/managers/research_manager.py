@@ -277,6 +277,17 @@ def create_research_manager(llm, memory, skill_injector=None):
                 " Add a confidence line inside <decision> as Confidence: N/100 with one brief justification."
             )
 
+        convergence_instruction = ""
+        convergence_consensus = str(investment_debate_state.get("convergence_consensus", "") or "")
+        if convergence_consensus.strip():
+            # A2: when the debate stopped early (converged), the judge's
+            # agreed-points list must reach the adjudicator so already-settled
+            # points are not re-litigated.
+            convergence_instruction = (
+                f"\n\nConvergence judge — points both sides already agreed on"
+                f" (do not re-litigate these):\n{convergence_consensus}\n"
+            )
+
         prompt = build_xml_decision_prompt(
             role_definition=skill_prompt + "\n\n" + (
                 "You are the Research Manager and debate facilitator."
@@ -293,6 +304,7 @@ def create_research_manager(llm, memory, skill_injector=None):
                 f"Route context: policy_role={policy_role}, capital_quality={capital_quality}, conflict_tier={conflict_tier}\n\n"
                 f"Past reflections on mistakes:\n{past_memory_str}\n\n"
                 f"Debate history:\n{history}\n\n"
+                f"{convergence_instruction}"
                 "In <analysis>, summarize the strongest bull and bear evidence and explain which side is stronger.\n"
                 "In <decision>, provide a decisive Buy / Sell / Hold recommendation, rationale, and strategic actions for the trader."
                 " Avoid defaulting to Hold unless it is strongly justified."

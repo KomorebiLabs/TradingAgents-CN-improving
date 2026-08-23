@@ -15,6 +15,9 @@ from tradingagents.agents.utils.state_helpers import (
 )
 
 
+# A2: hard cap on convergence-driven extra debate rounds.
+MAX_EXTRA_ROUNDS = 2
+
 class ConditionalLogic:
     """
     条件逻辑类 - 工作流的"交通枢纽"
@@ -359,6 +362,45 @@ class ConditionalLogic:
 
         # Fallback: Bull goes first if latest_speaker is unknown/empty
         return "Bull Researcher"
+
+    def should_continue_after_convergence(self, state: AgentState) -> str:
+        """A2: route after the Debate Convergence Check node.
+
+        Decision order (uncertainty always biases toward CONTINUING):
+        1. score <= 2 -> Research Manager (converged; consensus attached)
+        2. score >= 4 below the escalation cap -> Bull (add one more round)
+        3. otherwise -> round-count logic (the pre-A2 behavior)
+
+        The escalation cap bounds extra rounds above max_debate_rounds so a
+        stubborn judge cannot loop the debate forever.
+        """
+        debate_state = state.get("investment_debate_state", {}) or {}
+        count = max(0, debate_state.get("count", 0))
+        score = debate_state.get("convergence_score")
+
+        debate_rounds = self._resolve_debate_rounds(state)
+        debate_limit = 2 * debate_rounds
+        hard_limit = min(debate_limit + 10, self.max_recur_limit)
+        escalation_cap = debate_limit + 2 * MAX_EXTRA_ROUNDS
+
+        route_reason = "convergence_neutral"
+        decision = None
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            if score <= 2:
+                decision, route_reason = "Research Manager", "convergence_early_stop"
+            elif score >= 4 and count < escalation_cap and count < hard_limit:
+                decision, route_reason = "Bull Researcher", "convergence_escalate"
+
+        if decision is None:
+            if count >= debate_limit or count >= hard_limit:
+                decision, route_reason = "Research Manager", "debate_round_limit"
+            else:
+                decision, route_reason = "Bull Researcher", "debate_continue"
+
+        orchestration = state.setdefault("orchestration", {})
+        orchestration["route_rule"] = route_reason
+        orchestration["route_reason"] = route_reason
+        return decision
 
     # =========================================================================
     # 风险管理辩论路由（三方循环）
