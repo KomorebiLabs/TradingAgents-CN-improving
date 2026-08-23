@@ -99,6 +99,16 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Custom model ID", "custom"),
         ],
     },
+    "agnes": {
+        "quick": [
+            ("Agnes 2.5 Flash - Fast, free-tier compatible", "agnes-2.5-flash"),
+            ("Custom model ID", "custom"),
+        ],
+        "deep": [
+            ("Agnes 2.5 Flash - General purpose", "agnes-2.5-flash"),
+            ("Custom model ID", "custom"),
+        ],
+    },
     # OpenRouter: models fetched dynamically. Azure: any deployed model name.
     "ollama": {
         "quick": [
