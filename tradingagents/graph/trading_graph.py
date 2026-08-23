@@ -525,7 +525,10 @@ class TradingAgentsGraph:
         orchestration.setdefault("final_route", "")
         orchestration.setdefault("final_reason", "")
         orchestration.setdefault("context_budget_tokens", 24000)
-        orchestration.setdefault("compression_threshold_tokens", 18000)
+        orchestration.setdefault(
+            "compression_threshold_chars",
+            DEFAULT_CONFIG.get("orchestration_compression_threshold_chars", 36000),
+        )
         orchestration.setdefault("compression_notes", "")
         orchestration.setdefault("compression_required", False)
         orchestration.setdefault(

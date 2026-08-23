@@ -108,6 +108,34 @@ class AnalysisEventStream:
         decision = self._inner.decision if self._inner.final_state is not None else "N/A"
         yield AnalysisCompleted(final_state=final_state, decision=decision)
 
+        # A3 instrumentation: dump per-phase context sizes from the
+        # orchestration event trail so the compression threshold can be
+        # recalibrated from a real distribution (P75 rule) instead of guesswork.
+        try:
+            trail = (
+                (final_state.get("orchestration") or {}).get("event_trail")
+                or []
+            )
+            stats_dump = {
+                "run_id": self.run_id,
+                "ticker": self.request.ticker,
+                "trade_date": self.request.trade_date,
+                "phases": [
+                    {
+                        "stage": e.get("stage"),
+                        "context_estimate": e.get("context_estimate"),
+                    }
+                    for e in trail
+                    if isinstance(e, dict) and e.get("context_estimate") is not None
+                ],
+            }
+            (self.results_dir / "context_stats.json").write_text(
+                json.dumps(stats_dump, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass  # instrumentation is best-effort; never block a finished run
+
         stats = self.stats_handler.get_stats() if self.stats_handler is not None else {}
         self.result = AnalysisResult(
             ticker=self.request.ticker,

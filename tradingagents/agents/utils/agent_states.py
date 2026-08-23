@@ -144,6 +144,11 @@ class InvestDebateState(TypedDict):
     judge_decision: Annotated[str, "Final judge decision"]  # 裁判（Research Manager）的最终裁决
     count: Annotated[int, "Length of the current conversation"]  # 辩论轮次计数器
     latest_speaker: Annotated[str, "Last speaker: Bull Researcher or Bear Researcher"]  # 追踪最后发言者
+    # A2 收敛判定（Debate Convergence Check 节点写入；字段缺失时回退纯轮数逻辑）
+    convergence_score: Annotated[int, "Latest convergence score 1-5 (3 = neutral/unknown)"]
+    convergence_divergences: Annotated[str, "Unanswered core rebuttals listed by the convergence judge"]
+    convergence_consensus: Annotated[str, "Agreed points (attached to Research Manager on early stop)"]
+    convergence_log: Annotated[list, "Per-round convergence judgments for audit"]
 
 
 # -----------------------------------------------------------------------------
@@ -231,7 +236,7 @@ class OrchestrationState(TypedDict, total=False):
     final_route: Annotated[str, "Final route taken into completion"]
     final_reason: Annotated[str, "Why the final route was selected"]
     context_budget_tokens: Annotated[int, "Soft token budget for context"]
-    compression_threshold_tokens: Annotated[int, "Trigger threshold for summarization"]
+    compression_threshold_chars: Annotated[int, "Trigger threshold for summarization (chars, not tokens — unit fixed in A3)"]
     compression_notes: Annotated[str, "Compressed debate handoff notes"]
     compression_required: Annotated[bool, "Whether a compression handoff is required before continuing"]
     selected_analysts: Annotated[List[str], "Selected analyst pipeline"]
@@ -287,6 +292,7 @@ class AgentState(MessagesState):
     news_report: Annotated[str, "Report from the News Researcher of current world affairs"]  # 全球新闻舆情报告
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]  # 基本面财务报告（财报、估值）
     analyst_reports: Annotated[AnalystReportsState, "Structured analyst outputs"]
+    verification: Annotated[Dict[str, Any], "A4 evidence-verification summary block (claims/verified/unverified/warnings)"]
 
     # -------------------------------------------------------------------------
     # 【第三层】投资决策字段 - Research Team 输出
