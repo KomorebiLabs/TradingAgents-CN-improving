@@ -11,6 +11,7 @@ widgets and never reads a raw graph state chunk.
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +38,31 @@ from tradingagents.ui.live_dashboard import LiveDashboard
 from tradingagents.ui.theme import TRADING_THEME
 
 console = Console(theme=TRADING_THEME)
+
+# Decision agents emit <analysis>/<decision>/<SkillsUsed> wrappers (R11
+# structured decision prompt). State and event payloads must keep the raw
+# tags for structured extraction; only the user-facing .md artifacts get
+# them converted to Markdown headings here.
+_XML_TAG_RE = re.compile(r"^</?(analysis|decision|skillsused)>\s*$", re.IGNORECASE)
+_XML_SECTION_HEADERS = {
+    "analysis": "Analysis",
+    "decision": "Decision",
+    "skillsused": "Skills Used",
+}
+
+
+def _markdownify_report_content(content: str) -> str:
+    """Convert standalone XML section wrappers to Markdown headings."""
+    lines = []
+    for line in content.splitlines():
+        stripped = line.strip()
+        if _XML_TAG_RE.match(stripped):
+            if stripped.startswith("</"):
+                continue
+            lines.append(f"### {_XML_SECTION_HEADERS[stripped[1:-1].strip().lower()]}")
+            continue
+        lines.append(line)
+    return "\n".join(lines).lstrip("\n")
 
 
 def _apply_event(event: AnalysisEvent, msg_buf, dashboard) -> None:
@@ -66,15 +92,22 @@ def _apply_event(event: AnalysisEvent, msg_buf, dashboard) -> None:
     # AnalysisStarted / AnalysisCompleted carry no widget mapping here.
 
 
-def run_analysis(config: dict | AnalysisRequest) -> dict:
+def run_analysis(
+    config: dict | AnalysisRequest,
+    run_id: str | None = None,
+    resume: bool = False,
+) -> dict:
     """Run the full TradingAgents analysis pipeline (UI adapter).
 
     Args:
         config: questionnaire dict (cli/analyze/app.get_user_config) or an
             already-typed AnalysisRequest.
+        run_id: reuse an existing run id (resume mode).
+        resume: continue the checkpointed thread for run_id instead of
+            starting a new run.
 
     Returns:
-        dict with: ticker, decision, confidence, elapsed_time,
+        dict with: ticker, decision, confidence, run_id, elapsed_time,
         llm_calls, tool_calls, tokens_in, tokens_out,
         report_path, final_state   (AnalysisResult.to_dict shape)
     """
@@ -86,7 +119,10 @@ def run_analysis(config: dict | AnalysisRequest) -> dict:
 
     stats_handler = StatsCallbackHandler()
     service = AnalysisService()
-    stream = service.stream_events(request, stats_handler=stats_handler)
+    stream = service.stream_events(
+        request, stats_handler=stats_handler, run_id=run_id, resume=resume
+    )
+    run_tag = f"[{stream.run_id}] "
 
     # Message buffer for dashboard + incremental report artifacts
     log_file = stream.results_dir / "message_tool.log"
@@ -104,23 +140,24 @@ def run_analysis(config: dict | AnalysisRequest) -> dict:
             self.messages.append((ts, mtype, content))
             clean = content.replace("\n", " ")
             with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"{ts} [{mtype}] {clean}\n")
+                f.write(f"{run_tag}{ts} [{mtype}] {clean}\n")
 
         def add_tool_call(self, name: str, args: str):
             ts = datetime.now().strftime("%H:%M:%S")
             self.tool_calls.append((ts, name, args))
             with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"{ts} [Tool Call] {name}({args})\n")
+                f.write(f"{run_tag}{ts} [Tool Call] {name}({args})\n")
 
         def update_agent_status(self, agent: str, status: str):
             self.agent_status[agent] = status
 
         def update_report_section(self, section: str, content: str):
+            content = _markdownify_report_content(content)
             existing = self.report_sections.get(section, "")
             if content not in existing:
                 self.report_sections[section] = existing + "\n" + content
                 filepath = stream.report_dir / f"{section}.md"
-                filepath.write_text(self.report_sections[section], encoding="utf-8")
+                filepath.write_text(self.report_sections[section].strip(), encoding="utf-8")
 
     msg_buf = MessageBuffer()
     msg_buf.update_agent_status("Market Analyst", "in_progress")

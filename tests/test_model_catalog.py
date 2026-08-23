@@ -57,7 +57,12 @@ def test_default_provider_is_openai_with_real_ids():
     assert DEFAULT_CONFIG["quick_think_llm"] in {"gpt-4o", "gpt-4o-mini"}
 
 
-def test_get_model_options_shape():
+def test_agnes_provider_uses_official_model_id():
+    assert get_model_options("agnes", "quick")[0][1] == "agnes-2.5-flash"
+    assert get_model_options("agnes", "deep")[0][1] == "agnes-2.5-flash"
+    assert "agnes-2.5-flash" in get_known_models()["agnes"]
+
+
     opts = get_model_options("openai", "quick")
     assert all(len(opt) == 2 for opt in opts)
     assert get_model_options("deepseek", "deep")[0][1] in {"deepseek-chat", "deepseek-reasoner"}

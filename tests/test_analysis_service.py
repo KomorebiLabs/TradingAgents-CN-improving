@@ -66,7 +66,7 @@ class TestContracts:
         assert set(payload) == {
             "ticker", "decision", "confidence", "elapsed_time",
             "llm_calls", "tool_calls", "tokens_in", "tokens_out",
-            "report_path", "final_state",
+            "run_id", "report_path", "final_state",
         }
         assert payload["confidence"] is None  # default stays None — never faked
 

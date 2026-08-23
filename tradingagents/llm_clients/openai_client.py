@@ -31,6 +31,7 @@ _PROVIDER_CONFIG = {
     "qwen": ("https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "DASHSCOPE_API_KEY"),
     "glm": ("https://api.z.ai/api/paas/v4/", "ZHIPU_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
+    "agnes": ("https://apihub.agnes-ai.com/v1", "AGNES_API_KEY"),
     "ollama": ("http://localhost:11434/v1", None),
 }
 
@@ -58,6 +59,16 @@ class OpenAIClient(BaseLLMClient):
         """Return configured ChatOpenAI instance."""
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
+
+        # Retry policy (E2, classify-then-retry at the transport layer):
+        # the openai SDK retries connection errors / timeouts / 408 / 409 /
+        # 429 / 5xx with exponential backoff + jitter, and NEVER retries
+        # auth/permission/bad-request 4xx — exactly the whitelist we want.
+        # Made explicit here instead of stacking a langchain-level retry:
+        # two retry layers multiply attempts (3x3=9) and herd-thunder the
+        # provider. Streaming mid-disconnect is not resumed by design — the
+        # node fails and the checkpointer redoes it at node boundary (E1).
+        llm_kwargs.setdefault("max_retries", 3)
 
         # Provider-specific base URL and auth
         if self.provider in _PROVIDER_CONFIG:

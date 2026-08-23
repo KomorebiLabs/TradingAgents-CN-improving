@@ -46,7 +46,9 @@ def print_analyzer_summary(result: Dict[str, Any]) -> None:
     summary_table.add_column("Value", style="white", width=50)
 
     summary_table.add_row("Ticker", result.get("ticker", "N/A"))
-    
+    run_id = result.get("run_id") or "N/A"
+    summary_table.add_row("Run ID", f"[dim]{run_id}[/dim]")
+
     decision = result.get("decision", "N/A")
     decision_style = {
         "BUY": "bold green",
@@ -57,7 +59,7 @@ def print_analyzer_summary(result: Dict[str, Any]) -> None:
     
     confidence = result.get("confidence")
     if confidence is None:
-        summary_table.add_row("Confidence", "[dim]N/A (pending feature)[/dim]")
+        summary_table.add_row("Confidence", "[dim]N/A (not emitted this run)[/dim]")
     else:
         confidence = int(confidence)
         conf_bar = "█" * (confidence // 10) + "░" * (10 - confidence // 10)

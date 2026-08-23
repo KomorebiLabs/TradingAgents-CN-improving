@@ -7,7 +7,7 @@
 # TradingAgents-CN — 面向 A 股的多智能体 LLM 交易框架
 
 > **版本：** v0.2.3 · **定位：** 基于开源 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（~99k★）的 A 股深度定制 + 面向二开的架构治理
-> **测试护栏：** 453 个离线测试全绿（无网络、无 LLM）· **文档：** [架构](docs/architecture.md) · [面试导航](docs/interview-notes.md)
+> **测试护栏：** 458 个离线测试全绿（无网络、无 LLM）· **文档：** [架构](docs/architecture.md) · [面试导航](docs/interview-notes.md)
 
 TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易框架**：先用 Screener 从数千只股票中筛选候选，再用 LangGraph 编排的「分析师 → 多空辩论 → 交易员 → 风控辩论」多智能体流程对候选做深度分析，输出 BUY / HOLD / SELL 决策。
 
@@ -24,7 +24,7 @@ TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易
 | **回测引擎** | 自研信号驱动回测，复用系统真实选股逻辑（TechnicalStrategy），CSI300 之 80 只池 · 月度再平衡 top5 → **总收益 82.86% / 夏普 2.17 / 超额 +56.57%**（12 个月） | 单段窗口、未计交易成本、仅技术因子可回溯；窗口参数可调整，交易成本显式化仍属下一阶段（见 `reports/backtest/`） |
 | **参数敏感性** | 动量权重 −22% → 收益腰斩（30.9%），趋势对齐权重正向敏感——"感觉合理"的参数有了**实测依据** | 小池 mini 回测，见 `reports/sensitivity.md` |
 | **未来函数审计** | 回测取数显式截止信号日（`end_date = trade_date`），杜绝 look-ahead 泄漏 | 已在技术因子上核实 |
-| **测试护栏** | **453 个离线测试**：merger golden/parity、回测净值数学、供应商健康、接口路由、AST 依赖无环、图拓扑分解 | 以"冻结行为"为主，业务正确性由 [评估集](docs/interview-notes.md) 体系补充 |
+| **测试护栏** | **458 个离线测试**：merger golden/parity、回测净值数学、供应商健康、接口路由、AST 依赖无环、图拓扑分解 | 以"冻结行为"为主，业务正确性由 [评估集](docs/interview-notes.md) 体系补充 |
 | **数据可靠性** | 逐供应商健康监控（失败率/耗时/最近错误）+ 反爬重试（连接类指数退避、**HTTP 429/403 绝不重试**）+ 熔断降级 + 假成功可见化 | 免费数据源本身有接口漂移风险，已加探测告警 |
 | **工程重构** | 六大千行文件拆解（merger 1050 / reflection 1302 / memory 1124 / data_access 1905 / akshare_interface 1619 / agent_utils 944）→ 单向依赖分层 | 公开 API 零改动，等价性由 golden + parity 测试证明 |
 
@@ -86,6 +86,7 @@ pip install "questionary>=2.1.0"
 
 # 4. 配置 API Key（至少一个）
 export DEEPSEEK_API_KEY=...   # DeepSeek（推荐，成本低）
+export AGNES_API_KEY=...      # Agnes AI（Agnes 2.5 Flash，官方文档显示当前价格为 $0/1M tokens）
 export OPENAI_API_KEY=...     # OpenAI（GPT 系列）
 export GOOGLE_API_KEY=...     # Google（Gemini）
 # ... 见下方"LLM 支持总览"
@@ -94,7 +95,7 @@ export GOOGLE_API_KEY=...     # Google（Gemini）
 ### 运行测试（离线护栏，无需任何 Key）
 
 ```bash
-venv/Scripts/python.exe -m pytest tests/ -q    # 预期：453 passed（全离线）
+venv/Scripts/python.exe -m pytest tests/ -q    # 预期：458 passed（全离线）
 ```
 
 ### 跑一次回测（免费数据，无需 LLM Key）
@@ -171,6 +172,7 @@ print(decision)
 | **Google** | Gemini 2.0 Flash、Gemini 1.5 Pro/Flash | `GOOGLE_API_KEY` |
 | **Anthropic** | Claude 3.5 Sonnet/Haiku、Claude 3 Opus | `ANTHROPIC_API_KEY` |
 | **DeepSeek** | deepseek-chat、deepseek-reasoner | `DEEPSEEK_API_KEY` |
+| **Agnes AI** | agnes-2.5-flash（OpenAI-compatible） | `AGNES_API_KEY` |
 | **Qwen（阿里云）** | qwen-plus、qwen-max、qwen-long | `DASHSCOPE_API_KEY` |
 | **GLM（智谱）** | glm-4、glm-4-plus、glm-4-flash | `ZHIPU_API_KEY` |
 | **xAI / OpenRouter / Azure / Ollama** | Grok、100+ 路由、企业模型、本地模型 | 各自 Key / 配置 |
@@ -199,7 +201,7 @@ TradingAgents-CN-improving/
 │   └── ui/                       # 终端 UI（live_dashboard / summary / theme）
 ├── docs/                         # 架构说明 + 面试导航（证据标签体系）
 ├── docx/                         # 治理报告系列（屎山清理 / 开发文件）
-├── tests/                        # 453 个离线测试护栏
+├── tests/                        # 458 个离线测试护栏
 └── pyproject.toml                # 元数据 + 依赖
 ```
 
@@ -217,7 +219,7 @@ TradingAgents-CN-improving/
 | 敏感性 | `python -m tradingagents.backtest --sensitivity` | 参数敏感性扫描 |
 | 消融（需 LLM Key） | `python -m tradingagents.ablation` | 多智能体消融对比 |
 | 评测（需 LLM Key） | `python -m tradingagents.eval` | 决策正确性评测集 |
-| 测试 | `venv/Scripts/python.exe -m pytest tests/ -q` | 453 离线用例 |
+| 测试 | `venv/Scripts/python.exe -m pytest tests/ -q` | 458 离线用例 |
 | 版本 | `python -m tradingagents --version` | 显示版本 |
 
 ---

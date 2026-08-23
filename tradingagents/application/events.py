@@ -31,6 +31,7 @@ class AnalysisStarted(AnalysisEvent):
     ticker: str
     trade_date: str
     selected_analysts: tuple
+    run_id: str = ""  # unique per run; also the checkpoint thread_id (E1/E7)
 
 
 @dataclass(frozen=True)
@@ -148,6 +149,19 @@ def _classify_message(message) -> tuple[str, str | None]:
     return "System", text[:100] if text else None
 
 
+def _strip_speaker_prefix(content: str, agent: str) -> str:
+    """Drop a self-introduced speaker prefix ("Aggressive Analyst: ...").
+
+    Debater outputs often open with their own name, but report sections are
+    already wrapped in a "### {agent}" heading — keeping both duplicates the
+    byline in the final .md artifact.
+    """
+    prefix = f"{agent}:"
+    if content.startswith(prefix):
+        return content[len(prefix):].lstrip()
+    return content
+
+
 class ChunkEventTranslator:
     """Translate raw graph state chunks into stable execution events.
 
@@ -248,13 +262,16 @@ class ChunkEventTranslator:
                 events.append(TimelineNoted(text="Research: debate in progress"))
             if bull:
                 events.append(ReportSectionUpdated(
-                    section_key="investment_plan", content=f"### Bull Researcher\n{bull}"))
+                    section_key="investment_plan",
+                    content=f"### Bull Researcher\n{_strip_speaker_prefix(bull, 'Bull Researcher')}"))
             if bear:
                 events.append(ReportSectionUpdated(
-                    section_key="investment_plan", content=f"### Bear Researcher\n{bear}"))
+                    section_key="investment_plan",
+                    content=f"### Bear Researcher\n{_strip_speaker_prefix(bear, 'Bear Researcher')}"))
             if judge:
                 events.append(ReportSectionUpdated(
-                    section_key="investment_plan", content=f"### Research Manager\n{judge}"))
+                    section_key="investment_plan",
+                    content=f"### Research Manager\n{_strip_speaker_prefix(judge, 'Research Manager')}"))
                 for agent in ("Research Manager", "Bull Researcher"):
                     if self.agent_status.get(agent) != "completed":
                         events.append(AgentStatusChanged(agent=agent, status="completed"))
@@ -282,7 +299,7 @@ class ChunkEventTranslator:
         risk = debate_blocks.get("risk") or chunk.get("risk_debate_state")
         if risk:
             for field_name, agent in RISK_DEBATE_FIELDS:
-                content = risk.get(field_name, "").strip()
+                content = _strip_speaker_prefix(risk.get(field_name, "").strip(), agent)
                 if content:
                     if self.agent_status.get(agent) != "completed":
                         if self.agent_status.get(agent) != "in_progress":
@@ -291,7 +308,7 @@ class ChunkEventTranslator:
                     events.append(ReportSectionUpdated(
                         section_key="final_trade_decision", content=f"### {agent}\n{content}"))
 
-            judge = risk.get("judge_decision", "").strip()
+            judge = _strip_speaker_prefix(risk.get("judge_decision", "").strip(), "Portfolio Manager")
             if judge:
                 events.append(ReportSectionUpdated(
                     section_key="final_trade_decision", content=f"### Portfolio Manager\n{judge}"))

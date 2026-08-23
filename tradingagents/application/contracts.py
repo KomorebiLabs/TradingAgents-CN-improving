@@ -24,11 +24,15 @@ ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
 _CONFIDENCE_RE = re.compile(r"[Cc]onfidence\s*[:：]\s*(\d{1,3})(?:\s*/\s*100)?")
 
 # Where the final <decision> text lives in AgentState (structured + flat mirrors).
+# The trader plan is the last-resort source: it reliably emits a real
+# "Confidence: N/100" line even when the final decision does not.
 _CONFIDENCE_TEXT_PATHS = (
     ("decision_blocks", "final_trade_decision"),
     "final_trade_decision",
     ("risk_debate_state", "judge_decision"),
     ("decision_blocks", "risk_decision"),
+    ("decision_blocks", "trader_plan"),
+    "trader_investment_plan",
 )
 
 
@@ -37,8 +41,8 @@ def extract_confidence_from_state(final_state: Dict[str, Any]) -> Optional[int]:
 
     Priority:
       1. textual ``Confidence: N/100`` emitted by Portfolio/Research Manager
-         when ``enable_confidence_score`` is enabled (searched across the
-         decision texts above);
+         (or, as a fallback, the trader plan) — searched across the decision
+         texts above, highest-priority source first;
       2. numeric ``signal_card.initial_confidence`` from screener context, when
          present (fallback floor, not a fake);
       3. ``None`` — never fabricate a value.
@@ -161,6 +165,7 @@ class AnalysisResult:
     tool_calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
+    run_id: str = ""
     report_path: Optional[Path] = None
     final_state: Dict[str, Any] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
@@ -176,6 +181,7 @@ class AnalysisResult:
             "tool_calls": self.tool_calls,
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
+            "run_id": self.run_id,
             "report_path": self.report_path,
             "final_state": self.final_state,
         }

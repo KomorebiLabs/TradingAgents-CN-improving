@@ -40,11 +40,13 @@ class _AnalysisStream:
         company_name: str,
         trade_date,
         callbacks: Optional[List] = None,
+        resume: bool = False,
     ):
         self._graph = graph
         self._company = company_name
         self._trade_date = trade_date
         self._callbacks = callbacks
+        self.resume = resume
         self.final_state: Optional[Dict[str, Any]] = None
         self.decision: str = ""
         self._consumed = False
@@ -70,10 +72,22 @@ class _AnalysisStream:
         if graph._historical_context is not None:
             init_state["historical_context"] = graph._historical_context
         args = graph.propagator.get_graph_args(callbacks=self._callbacks)
+        if graph.run_id:
+            # thread_id == run_id: LangGraph checkpoints every super-step under
+            # this id, enabling --resume after a crash (E1).
+            args.setdefault("config", {}).setdefault("configurable", {})[
+                "thread_id"
+            ] = graph.run_id
+
+        # Resume semantics: input=None tells LangGraph to continue the existing
+        # thread from its last checkpoint instead of starting a new invocation.
+        # init_state is still built above so the error-fallback paths keep a
+        # well-formed state dict to annotate.
+        stream_input = None if self.resume else init_state
 
         last_state: Optional[Dict[str, Any]] = None
         try:
-            for chunk in graph.graph.stream(init_state, **args):
+            for chunk in graph.graph.stream(stream_input, **args):
                 if graph.debug:
                     messages = chunk.get("messages", [])
                     if messages:
@@ -153,6 +167,7 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        run_id: Optional[str] = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -161,8 +176,15 @@ class TradingAgentsGraph:
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
             callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            run_id: Unique run identifier. When set, a SqliteSaver checkpointer
+                is attached under ~/.tradingagents/checkpoints/<run_id>/ and the
+                run's LangGraph thread_id equals the run_id — a crashed run can
+                then be resumed from the last completed node (no LLM re-billing
+                for finished nodes) instead of restarting from scratch.
         """
         self.debug = debug
+        self.run_id = run_id
+        checkpointer = self._build_checkpointer(run_id) if run_id else None
         # Merge partial user config over a private copy of the defaults so:
         # 1. callers may override individual keys without KeyError on
         #    data_cache_dir / results_dir / max_debate_rounds etc.;
@@ -262,7 +284,34 @@ class TradingAgentsGraph:
         self.log_states_dict = {}  # date to full state dict
 
         # Set up the graph
-        self.graph = self.graph_setup.setup_graph(semantic_selected_analysts)
+        self.graph = self.graph_setup.setup_graph(
+            semantic_selected_analysts, checkpointer=checkpointer
+        )
+
+    @staticmethod
+    def _build_checkpointer(run_id: str):
+        """Create a per-run SqliteSaver under ~/.tradingagents/checkpoints/.
+
+        Falls back to None (no checkpointing) if the sqlite checkpoint package
+        is unavailable, so absence never breaks a run — resume simply won't
+        be possible for it.
+        """
+        try:
+            import sqlite3
+
+            from langgraph.checkpoint.sqlite import SqliteSaver
+
+            ckpt_dir = Path.home() / ".tradingagents" / "checkpoints" / run_id
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(
+                ckpt_dir / "checkpoint.db", check_same_thread=False
+            )
+            return SqliteSaver(conn)
+        except Exception as exc:  # pragma: no cover - optional dependency
+            logging.getLogger(__name__).warning(
+                "checkpointer unavailable for run %s: %s", run_id, exc
+            )
+            return None
 
     def _get_provider_kwargs(self) -> Dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -308,6 +357,7 @@ class TradingAgentsGraph:
         company_name: str,
         trade_date,
         callbacks: Optional[List] = None,
+        resume: bool = False,
     ) -> _AnalysisStream:
         """Public streaming API for one analysis run.
 
@@ -321,9 +371,15 @@ class TradingAgentsGraph:
         Chunks are raw LangGraph state snapshots (``stream_mode="values"``).
         On graph failure the stream finalizes into an error fallback state
         instead of raising mid-stream, matching ``propagate()`` semantics.
+
+        With ``resume=True`` (requires the graph to have been constructed with
+        a ``run_id``), the run continues the checkpointed thread instead of
+        starting a new invocation — completed nodes are not re-executed.
         """
         self.ticker = company_name
-        return _AnalysisStream(self, company_name, trade_date, callbacks=callbacks)
+        return _AnalysisStream(
+            self, company_name, trade_date, callbacks=callbacks, resume=resume
+        )
 
     def propagate(self, company_name, trade_date):
         """Run the trading agents graph for a company on a specific date.

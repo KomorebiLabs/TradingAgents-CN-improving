@@ -16,6 +16,15 @@ from tradingagents import __version__
 from tradingagents.ui.theme import TRADING_THEME
 from tradingagents.ui.terminal_mascot import print_komo
 
+# Load API keys from .env before any subcommand constructs LLM clients.
+# Best-effort: system environment variables always win over .env values.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:  # pragma: no cover - dotenv is a declared dependency
+    pass
+
 # Create app with custom theme
 app = typer.Typer(
     name="TradingAgents",
@@ -32,13 +41,29 @@ def analyze_cmd(
     ticker: str = typer.Option(None, "--ticker", "-t", help="Ticker symbol to analyze"),
     date: str = typer.Option(None, "--date", "-d", help="Analysis date (YYYY-MM-DD)"),
     interactive: bool = typer.Option(True, "--interactive/--no-interactive", help="Interactive mode"),
+    resume: str = typer.Option(None, "--resume", help="Resume a crashed/interrupted run by its run_id (skips the questionnaire)"),
 ):
     """Stage 2: Deep multi-agent analysis of a single stock.
 
     Launches the full TradingAgents pipeline (Analysts -> Research -> Trading -> Risk -> Portfolio).
 
     With --no-interactive, --ticker (and optionally --date) run directly with default settings.
+    With --resume <run_id>, continue a checkpointed run from its last completed
+    node — finished nodes are not re-executed (no LLM re-billing).
     """
+    if resume:
+        from cli.analyze.run_impl import run_analysis
+        from tradingagents.application import AnalysisService
+        from tradingagents.ui.summary import print_summary
+
+        # resume_run validates the run_id, reloads its persisted request and
+        # builds the graph; run_analysis then drives that request against the
+        # same checkpoint thread.
+        loaded = AnalysisService.resume_run(resume)
+        result = run_analysis(loaded.request, run_id=resume, resume=True)
+        print_summary(result, module_type="analyzer")
+        return
+
     from cli.analyze.app import run as analyze_run
 
     if interactive or not ticker:

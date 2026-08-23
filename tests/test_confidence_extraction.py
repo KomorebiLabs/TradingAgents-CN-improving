@@ -32,6 +32,29 @@ def test_extract_from_risk_judge_decision():
     assert extract_confidence_from_state(state) == 40
 
 
+def test_fallback_to_trader_plan_when_final_decision_silent():
+    """Real-run regression: the trader emitted 'Confidence: 72/100' while the
+    final decision carried no confidence line — the trader value must surface."""
+    state = {
+        "decision_blocks": {"final_trade_decision": "HOLD, no confidence stated."},
+        "trader_investment_plan": "HOLD. Confidence: 72/100 — conviction on hold.",
+    }
+    assert extract_confidence_from_state(state) == 72
+
+
+def test_trader_plan_from_decision_blocks():
+    state = {"decision_blocks": {"trader_plan": "SELL. Confidence: 61/100."}}
+    assert extract_confidence_from_state(state) == 61
+
+
+def test_final_decision_outranks_trader_plan():
+    state = {
+        "final_trade_decision": "HOLD. Confidence: 50/100.",
+        "trader_investment_plan": "Confidence: 99/100",
+    }
+    assert extract_confidence_from_state(state) == 50
+
+
 def test_clamps_out_of_range():
     assert extract_confidence_from_state({"final_trade_decision": "Confidence: 150"}) == 100
     assert extract_confidence_from_state({"final_trade_decision": "Confidence: 0/100"}) == 0
