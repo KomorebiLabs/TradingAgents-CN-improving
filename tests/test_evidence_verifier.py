@@ -144,3 +144,21 @@ class TestRunVerification:
         annotated = annotate_report(text, claims[:1])
         assert annotated.count("[verified]") == 0  # unverified by default here
         assert annotated.count("[unverified]") == 1
+
+
+class TestThresholdClaims:
+    """A4 taxonomy completion: directional claims verify by direction, not equality."""
+
+    def test_floor_threshold_verified(self):
+        claims = extract_claims("批价未跌破 2500 元支撑位。", "market")
+        assert claims and claims[0].direction == ">="
+        assert verify_claim(claims[0], [("今日批价 2600 元", "t")]).level == "verified"
+
+    def test_ceiling_threshold_verified(self):
+        claims = extract_claims("批价未突破 3000 元压力位。", "market")
+        assert claims and claims[0].direction == "<="
+        assert verify_claim(claims[0], [("今日批价 2600 元", "t")]).level == "verified"
+
+    def test_broken_floor_not_verified(self):
+        claims = extract_claims("批价未跌破 2500 元支撑位。", "market")
+        assert verify_claim(claims[0], [("今日批价 2400 元", "t")]).level == "unverified"

@@ -257,6 +257,9 @@ def create_portfolio_manager(llm, memory, skill_injector=None):
                 " You must act like a compliance-focused risk officer with 20 years of A-share quantitative"
                 " risk-control experience, while still issuing a clear portfolio action."
                 f"{portfolio_role_instruction}"
+                " Numeric claims in upstream reports may carry [unverified] markers — those numbers"
+                " have NO matching tool evidence: weight them down, never cite them as established"
+                " facts, and say so when a decision rests on them."
             ),
             task_instructions=(
                 f"{instrument_context}\n\n"

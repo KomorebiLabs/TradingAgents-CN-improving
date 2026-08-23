@@ -46,6 +46,7 @@ _DIMENSION_UNITS = {
 }
 
 _NUM_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(亿|万|千万)?\s*(元|%|倍|美元)?")
+_THRESHOLD_RE = re.compile(r"(未跌破|不低于|高于|大于|守住|未突破|未站上|低于|小于)\s*(\d+(?:\.\d+)?)\s*(亿|万)?\s*(元|%)?")
 _RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:亿|万)?\s*[-~至到]\s*(\d+(?:\.\d+)?)\s*(亿|万)?\s*(元|%)?")
 
 # growth/threshold words that mark a claim as unverifiable in v1
@@ -64,6 +65,7 @@ class Claim:
     level: str = "unverified"
     evidence: str = ""
     usd: bool = False  # currency claim in USD: never verified in v1 (no FX table)
+    direction: Optional[str] = None  # threshold claims: '>=' or '<=' (directional check)
 
 
 @dataclass
@@ -134,6 +136,21 @@ def extract_claims(report_text: str, report_key: str) -> List[Claim]:
         if family is None:
             continue
         dimension = _METRIC_FAMILIES[family][0]
+        thr = _THRESHOLD_RE.search(sentence)
+        if thr:
+            ge_words = ("未跌破", "不低于", "高于", "大于", "守住")
+            direction = ">=" if thr.group(1) in ge_words else "<="
+            tval = float(thr.group(2))
+            scale, unit = thr.group(3), thr.group(4)
+            if dimension == "percent":
+                val = tval if unit == "%" else None
+            else:
+                val = _norm_currency(tval, unit if unit in (None, "元") else unit, scale)
+            if val is not None:
+                claims.append(Claim(sentence=sentence, report_key=report_key,
+                                    family=family, dimension=dimension,
+                                    value=val, raw=thr.group(0), direction=direction))
+                continue
         rng = _RANGE_RE.search(sentence)
         if rng:
             scale = rng.group(3) or ""
@@ -207,6 +224,27 @@ def verify_claim(claim: Claim, evidence: List[Tuple[str, str]]) -> Claim:
         # semantic anchor: evidence sentence must mention the metric family
         if not any(syn.lower() in sentence.lower() for syn in synonyms):
             continue
+        if claim.direction is not None:
+            for m in _NUM_RE.finditer(sentence):
+                raw = float(m.group(1))
+                scale, unit = m.group(2), m.group(3)
+                if claim.dimension == "percent":
+                    if m.group(3) != "%":
+                        continue
+                    val = raw
+                elif claim.dimension == "multiple":
+                    val = raw if m.group(3) in (None, "倍") else None
+                else:
+                    if not (scale or unit):
+                        continue
+                    val = _norm_currency(raw, unit, scale)
+                if val is None:
+                    continue
+                ok = val >= claim.value if claim.direction == ">=" else val <= claim.value
+                if ok:
+                    claim.level, claim.evidence = "verified", sentence
+                    return claim
+            return claim
         if claim.value_range is not None:
             m = _NUM_RE.search(sentence)
             if not m:
