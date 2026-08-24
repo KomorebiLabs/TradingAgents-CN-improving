@@ -3,12 +3,30 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from tradingagents.screener.data_access import ScreenerDataAccess
 from tradingagents.screener.vendors import backup, misc, sina
+
+
+@pytest.fixture(autouse=True)
+def _minimal_akshare_module(monkeypatch):
+    """Keep optional-provider tests runnable when CI omits AkShare."""
+    module = ModuleType("akshare")
+    for name in (
+        "stock_individual_fund_flow_rank",
+        "stock_board_concept_name_em",
+        "stock_lhb_detail_em",
+        "stock_lhb_stock_statistic_em",
+        "stock_lhb_jgstatistic_em",
+        "stock_zh_vote_baidu",
+    ):
+        setattr(module, name, None)
+    monkeypatch.setitem(sys.modules, "akshare", module)
 
 
 class _HttpStub:
