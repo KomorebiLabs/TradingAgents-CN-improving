@@ -251,6 +251,14 @@ def create_portfolio_manager(llm, memory, skill_injector=None):
                 " Add a confidence line inside <decision> as Confidence: N/100 with one brief basis."
             )
 
+        from tradingagents.agents.utils.exchange_rules import (
+            execution_constraint_block, portfolio_prompt_block,
+        )
+        from tradingagents.dataflows.config import get_config
+        _ticker = str(state.get("company_of_interest", ""))
+        _portfolio = get_config().get("portfolio_context")
+        _human_comment = str(state.get("human_override_comment") or "").strip()
+
         prompt = build_xml_decision_prompt(
             role_definition=skill_prompt + "\n\n" + (
                 "You are the Portfolio Manager making the final risk-adjusted trading decision."
@@ -260,8 +268,16 @@ def create_portfolio_manager(llm, memory, skill_injector=None):
                 " Numeric claims in upstream reports may carry [unverified] markers — those numbers"
                 " have NO matching tool evidence: weight them down, never cite them as established"
                 " facts, and say so when a decision rests on them."
+            )
+            + (
+                "\n用户特别关注点（顾问性输入，影响你的论证权重，但你保留完整决策权）："
+                + _human_comment
+                if _human_comment
+                else ""
             ),
             task_instructions=(
+                f"{execution_constraint_block(_ticker)}"
+                f"{portfolio_prompt_block(_portfolio, _ticker)}"
                 f"{instrument_context}\n\n"
                 f"{segment_advisory}\n\n"
                 "Use exactly one rating from Buy / Overweight / Hold / Underweight / Sell.\n"

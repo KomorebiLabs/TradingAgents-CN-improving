@@ -293,6 +293,7 @@ class AgentState(MessagesState):
     fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]  # 基本面财务报告（财报、估值）
     analyst_reports: Annotated[AnalystReportsState, "Structured analyst outputs"]
     verification: Annotated[Dict[str, Any], "A4 evidence-verification summary block (claims/verified/unverified/warnings)"]
+    human_override_comment: Annotated[str, "A5 HumanGate: advisory user comment injected into the final decision context"]
 
     # -------------------------------------------------------------------------
     # 【第三层】投资决策字段 - Research Team 输出

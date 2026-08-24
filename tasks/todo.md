@@ -1,0 +1,6 @@
+- [x] Research official announcement and independent financial sources
+- [x] Add shared vendor health model
+- [x] Add official announcement adapter
+- [x] Add independent financial adapter
+- [x] Integrate health into routing and artifacts
+- [x] Run offline/live probes and update the audit report

@@ -13,9 +13,10 @@ future Web API) can call ``run()`` with an ``on_event`` callback instead.
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
-from dataclasses import asdict, fields as dataclass_fields
+from dataclasses import asdict, fields as dataclass_fields, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
@@ -23,6 +24,7 @@ from tradingagents.application.contracts import (
     AnalysisRequest,
     AnalysisResult,
     extract_confidence_from_state,
+    normalize_trade_date,
 )
 from tradingagents.application.events import (
     AnalysisCompleted,
@@ -34,6 +36,45 @@ from tradingagents.application.events import (
 # Report artifacts go to <root>/reports/<ticker>/<date>/, matching the
 # pre-service layout that wrote them from cli/analyze/run_impl.py.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def calibrate_compression_threshold(
+    stats_paths: List[Path], percentile: float = 0.75, min_samples: int = 10
+) -> Optional[int]:
+    """Calculate a character threshold from persisted phase statistics.
+
+    Both the new ``estimated_chars`` field and the old
+    ``context_estimate`` field are accepted while existing run artifacts
+    migrate. Fewer than ``min_samples`` values deliberately returns ``None``;
+    a provisional config threshold must not be silently replaced by a small
+    sample.
+    """
+    if not 0 < percentile < 1 or min_samples < 1:
+        raise ValueError("percentile must be between 0 and 1; min_samples must be positive")
+    values: List[float] = []
+    for path in stats_paths:
+        try:
+            payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, TypeError, ValueError):
+            continue
+        for phase in payload.get("phases", []) if isinstance(payload, dict) else []:
+            if not isinstance(phase, dict):
+                continue
+            value = phase.get("estimated_chars", phase.get("context_estimate"))
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                values.append(float(value))
+    if len(values) < min_samples:
+        return None
+    values.sort()
+    rank = (len(values) - 1) * percentile
+    lower = math.floor(rank)
+    upper = math.ceil(rank)
+    if lower == upper:
+        result = values[lower]
+    else:
+        fraction = rank - lower
+        result = values[lower] + (values[upper] - values[lower]) * fraction
+    return int(round(result))
 
 
 def _default_graph_factory():
@@ -53,6 +94,8 @@ class AnalysisEventStream:
         translator: ChunkEventTranslator,
         run_id: Optional[str] = None,
         resume: bool = False,
+        resume_payload: Optional[Dict[str, Any]] = None,
+        request_warnings: Optional[List[str]] = None,
     ):
         self.request = request
         self.stats_handler = stats_handler
@@ -60,6 +103,8 @@ class AnalysisEventStream:
         self._translator = translator
         self.run_id = run_id or uuid.uuid4().hex[:12]
         self.resume = resume
+        self.resume_payload = resume_payload
+        self._request_warnings = list(request_warnings or [])
         self._inner = None
         self.result: Optional[AnalysisResult] = None
         # Artifact paths (created eagerly, before any streaming). One
@@ -83,8 +128,68 @@ class AnalysisEventStream:
             pass  # artifact persistence is best-effort; the run continues
         self._start_time = time.time()
 
+    def mark_abandoned(self, reason: str, choice: str = "abort") -> Path:
+        """Persist an explicit HumanGate abort outcome and consumed cost context."""
+        stats = self.stats_handler.get_stats() if self.stats_handler is not None else {}
+        artifact = {
+            "run_id": self.run_id,
+            "ticker": self.request.ticker,
+            "trade_date": self.request.trade_date,
+            "choice": choice,
+            "reason": reason,
+            "costs": stats,
+            "timestamp": time.time(),
+        }
+        path = self.results_dir / "abandoned.json"
+        path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        return path
+
     def __iter__(self) -> Iterator[AnalysisEvent]:
-        from tradingagents.application.events import AnalysisStarted
+        from tradingagents.agents.utils.untrusted_wrap import (
+            finish_security_context,
+            start_security_context,
+        )
+        from tradingagents.dataflows.vendor_health import TRACKER as VENDOR_HEALTH
+
+        # Health is scoped to this run for the single-run CLI/API contract.
+        # The tracker itself remains process-wide so screener and dataflow
+        # adapters share one schema and one artifact format.
+        VENDOR_HEALTH.reset()
+        start_security_context(self.run_id)
+        try:
+            yield from self._iter_impl()
+        finally:
+            audit = finish_security_context()
+            try:
+                (self.results_dir / "security_audit.json").write_text(
+                    json.dumps(audit, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+            try:
+                (self.results_dir / "vendor_health.json").write_text(
+                    json.dumps(
+                        {
+                            "run_id": self.run_id,
+                            "ticker": self.request.ticker,
+                            "trade_date": self.request.trade_date,
+                            "vendors": VENDOR_HEALTH.snapshot(),
+                            "summary": VENDOR_HEALTH.summary_lines(),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+
+    def _iter_impl(self) -> Iterator[AnalysisEvent]:
+        from tradingagents.application.events import AnalysisStarted, TimelineNoted
+        from tradingagents.agents.utils.untrusted_wrap import security_audit_snapshot
+
+        security_entry_index = 0
 
         yield AnalysisStarted(
             ticker=self.request.ticker,
@@ -99,10 +204,17 @@ class AnalysisEventStream:
             self.request.trade_date,
             callbacks=callbacks,
             resume=self.resume,
+            resume_payload=self.resume_payload,
         )
         for chunk in self._inner:
             for event in self._translator.translate(chunk, self.request.analyst_keys()):
                 yield event
+            audit = security_audit_snapshot()
+            for entry in audit["entries"][security_entry_index:]:
+                yield TimelineNoted(
+                    text=f"injection_filtered: {entry['source']} x{entry['count']}"
+                )
+            security_entry_index = len(audit["entries"])
 
         final_state = self._inner.final_state if self._inner.final_state is not None else {}
         decision = self._inner.decision if self._inner.final_state is not None else "N/A"
@@ -123,6 +235,7 @@ class AnalysisEventStream:
                 "phases": [
                     {
                         "stage": e.get("stage"),
+                        "estimated_chars": e.get("context_estimate"),
                         "context_estimate": e.get("context_estimate"),
                     }
                     for e in trail
@@ -137,6 +250,21 @@ class AnalysisEventStream:
             pass  # instrumentation is best-effort; never block a finished run
 
         stats = self.stats_handler.get_stats() if self.stats_handler is not None else {}
+        # B2 hard check (the lint half of PIT): this system has NEVER run a
+        # backtest — temporal-attribution phrasing in decision texts is
+        # fabrication regardless of data level, so it is flagged unconditionally.
+        pit_warnings = list(self._request_warnings)
+        for label, text in (
+            ("final_decision", str(final_state.get("final_trade_decision") or "")),
+            ("investment_plan", str(final_state.get("investment_plan") or "")),
+        ):
+            low = text.lower()
+            for phrase in ("历史回测", "回测显示", "回测表明", "backtest show"):
+                if phrase in low:
+                    pit_warnings.append(
+                        f"[PIT-language] {label} 含 '{phrase}' — 系统从未运行回测，"
+                        "此类时间归因表述属于虚构"
+                    )
         self.result = AnalysisResult(
             ticker=self.request.ticker,
             trade_date=self.request.trade_date,
@@ -150,6 +278,7 @@ class AnalysisEventStream:
             tokens_out=stats.get("tokens_out", 0),
             report_path=self.report_dir,
             final_state=final_state,
+            warnings=pit_warnings,
         )
 
 
@@ -172,6 +301,7 @@ class AnalysisService:
         stats_handler: Optional[Any] = None,
         run_id: Optional[str] = None,
         resume: bool = False,
+        resume_payload: Optional[Dict[str, Any]] = None,
     ) -> AnalysisEventStream:
         """Start one run and return its event stream.
 
@@ -188,10 +318,19 @@ class AnalysisService:
         """
         if resume and not run_id:
             raise ValueError("resume requires an explicit run_id")
+        # Generate the run_id BEFORE building the graph so the checkpointer
+        # thread and the artifact/stream id are the SAME id for fresh runs
+        # (E1 bug fix: a stream-generated id never reached the graph).
+        if not run_id:
+            run_id = uuid.uuid4().hex[:12]
+        normalized_date, date_warning = normalize_trade_date(request.trade_date)
+        request_warnings = [date_warning] if date_warning else []
+        if normalized_date != request.trade_date:
+            request = replace(request, trade_date=normalized_date)
         graph_cls = self._graph_factory()
         graph = graph_cls(
             list(request.analyst_keys()),
-            config=request.to_graph_config(),
+            config=self._effective_config(request),
             debug=self._debug,
             callbacks=[stats_handler] if stats_handler is not None else None,
             run_id=run_id,
@@ -202,7 +341,22 @@ class AnalysisService:
         return AnalysisEventStream(
             request, graph, stats_handler, translator,
             run_id=run_id, resume=resume,
+            resume_payload=resume_payload,
+            request_warnings=request_warnings,
         )
+
+    @staticmethod
+    def _effective_config(request: AnalysisRequest) -> Dict[str, Any]:
+        """Graph config with the file-level portfolio fallback applied (B3):
+        an explicit request portfolio wins; otherwise ~/.tradingagents/portfolio.json."""
+        config = request.to_graph_config()
+        if request.portfolio_context is None:
+            from tradingagents.agents.utils.portfolio_context import load_portfolio
+
+            portfolio = load_portfolio()
+            if portfolio:
+                config["portfolio_context"] = portfolio
+        return config
 
     @staticmethod
     def find_run(run_id: str) -> Optional[Path]:

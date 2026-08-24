@@ -62,7 +62,10 @@ def test_news_tool_route_preserves_start_and_end_dates(monkeypatch):
         "get_news", "600519", "2026-08-01", "2026-08-20"
     )
 
-    assert result == "news-result"
+    # A6: news text passes through the untrusted-content wrapper
+    # (salted delimiters + injection filter) — raw payload preserved inside.
+    assert "news-result" in result
+    assert "UNTRUSTED_DATA_" in result
     assert captured["args"] == ("600519", "2026-08-01", "2026-08-20")
     assert captured["kwargs"] == {}
 

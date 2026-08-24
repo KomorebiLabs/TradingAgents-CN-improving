@@ -41,12 +41,15 @@ class _AnalysisStream:
         trade_date,
         callbacks: Optional[List] = None,
         resume: bool = False,
+        resume_payload=None,
     ):
         self._graph = graph
         self._company = company_name
         self._trade_date = trade_date
         self._callbacks = callbacks
         self.resume = resume
+        self.resume_payload = resume_payload
+        self.paused = False  # A5: True when the run ended at a HumanGate interrupt
         self.final_state: Optional[Dict[str, Any]] = None
         self.decision: str = ""
         self._consumed = False
@@ -81,9 +84,16 @@ class _AnalysisStream:
 
         # Resume semantics: input=None tells LangGraph to continue the existing
         # thread from its last checkpoint instead of starting a new invocation.
-        # init_state is still built above so the error-fallback paths keep a
-        # well-formed state dict to annotate.
-        stream_input = None if self.resume else init_state
+        # With resume_payload (A5 HumanGate), Command(resume=...) delivers the
+        # gate decision to the paused interrupt() call.
+        stream_input = init_state
+        if self.resume:
+            if self.resume_payload is not None:
+                from langgraph.types import Command
+
+                stream_input = Command(resume=self.resume_payload)
+            else:
+                stream_input = None
 
         last_state: Optional[Dict[str, Any]] = None
         try:
@@ -116,6 +126,11 @@ class _AnalysisStream:
             )
 
         final_state = graph._ensure_structured_state(last_state)
+        # A5: a run that stopped at the HumanGate interrupt has no final
+        # decision — mark paused so the caller knows to collect a gate
+        # decision and resume with Command(resume=payload).
+        if not str(final_state.get("final_trade_decision") or "").strip() and graph.run_id:
+            self.paused = True
         graph.curr_state = final_state
         graph._log_state(self._trade_date, final_state)
         try:
@@ -358,6 +373,7 @@ class TradingAgentsGraph:
         trade_date,
         callbacks: Optional[List] = None,
         resume: bool = False,
+        resume_payload=None,
     ) -> _AnalysisStream:
         """Public streaming API for one analysis run.
 
@@ -378,7 +394,8 @@ class TradingAgentsGraph:
         """
         self.ticker = company_name
         return _AnalysisStream(
-            self, company_name, trade_date, callbacks=callbacks, resume=resume
+            self, company_name, trade_date,
+            callbacks=callbacks, resume=resume, resume_payload=resume_payload,
         )
 
     def propagate(self, company_name, trade_date):

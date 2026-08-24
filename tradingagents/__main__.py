@@ -42,6 +42,7 @@ def analyze_cmd(
     date: str = typer.Option(None, "--date", "-d", help="Analysis date (YYYY-MM-DD)"),
     interactive: bool = typer.Option(True, "--interactive/--no-interactive", help="Interactive mode"),
     resume: str = typer.Option(None, "--resume", help="Resume a crashed/interrupted run by its run_id (skips the questionnaire)"),
+    hitl: bool = typer.Option(False, "--hitl", help="Pause for human confirmation before the final decision (A5 HumanGate)"),
 ):
     """Stage 2: Deep multi-agent analysis of a single stock.
 
@@ -67,7 +68,7 @@ def analyze_cmd(
     from cli.analyze.app import run as analyze_run
 
     if interactive or not ticker:
-        analyze_run()
+        analyze_run(hitl=hitl)
         return
 
     # Non-interactive mode: typed request with defaults, executed directly.
@@ -81,7 +82,7 @@ def analyze_cmd(
         ticker,
         trade_date=date or datetime.now().strftime("%Y-%m-%d"),
     )
-    result = run_analysis(request)
+    result = run_analysis(request, hitl=hitl)
     print_summary(result, module_type="analyzer")
 
 

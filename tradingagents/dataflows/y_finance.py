@@ -71,7 +71,48 @@ import os
 # 【教学】stockstats_utils 是本项目的"技术指标计算引擎"
 # 为什么需要它？因为 yfinance 返回的只是原始价格数据
 # 技术指标（SMA, RSI, MACD 等）需要额外计算，stockstats 就是这个计算器
-from .stockstats_utils import StockstatsUtils, _clean_dataframe, yf_retry, load_ohlcv, filter_financials_by_date
+from .stockstats_utils import (
+    StockstatsUtils,
+    _clean_dataframe,
+    filter_financials_by_date,
+    load_ohlcv,
+    normalize_yfinance_symbol,
+    yf_retry,
+)
+
+
+def _financial_evidence_block(data: pd.DataFrame, metrics) -> str:
+    """Render a compact, unit-labelled evidence block beside the CSV.
+
+    The CSV remains available for machine consumers.  This block gives the
+    report verifier an unambiguous metric label, fiscal period, and CNY unit;
+    bare CSV numbers are intentionally not treated as evidence.
+    """
+    if data is None or data.empty:
+        return ""
+    periods = list(data.columns)
+    lines = [
+        "# Evidence-ready financial facts (CNY yuan; fiscal period is in parentheses)",
+    ]
+    for display, candidates in metrics:
+        row_name = next((name for name in candidates if name in data.index), None)
+        if row_name is None:
+            continue
+        for period in periods:
+            value = data.at[row_name, period]
+            if pd.isna(value):
+                continue
+            period_text = str(period)[:10]
+            lines.append(f"{display} ({period_text}): {float(value):.2f} 元")
+    return "\n".join(lines)
+
+
+def _latest_financial_period(data: pd.DataFrame) -> str:
+    """Return the latest retained fiscal period for PIT evidence metadata."""
+    if data is None or data.empty:
+        return ""
+    periods = [str(period)[:10] for period in data.columns]
+    return max(periods) if periods else ""
 
 
 # ==============================================================================
@@ -567,7 +608,7 @@ def get_fundamentals(
     """Get company fundamentals overview from yfinance."""
     try:
         # 【教学】创建 Ticker 对象
-        ticker_obj = yf.Ticker(ticker.upper())
+        ticker_obj = yf.Ticker(normalize_yfinance_symbol(ticker))
 
         # 【教学】ticker.info 是一个"懒加载字典"
         # 第一次访问时会发起网络请求
@@ -615,9 +656,28 @@ def get_fundamentals(
         # 【教学】构建输出字符串
         # 只包含非空字段，避免 LLM 看到大量 "None"
         lines = []
+        multiple_labels = {"PE Ratio (TTM)", "Forward PE", "PEG Ratio", "Price to Book"}
+        currency_labels = {
+            "Market Cap", "Revenue (TTM)", "Gross Profit", "EBITDA",
+            "Net Income", "Free Cash Flow",
+        }
+        percent_labels = {
+            "Dividend Yield", "Profit Margin", "Operating Margin",
+            "Return on Equity", "Return on Assets",
+        }
         for label, value in fields:
             if value is not None:
-                lines.append(f"{label}: {value}")
+                if label in multiple_labels:
+                    lines.append(f"{label}: {float(value):.10g} 倍")
+                elif label in currency_labels:
+                    lines.append(f"{label}: {float(value):.2f} 元")
+                elif label in percent_labels:
+                    # Yahoo returns dividendYield as an already-percent value,
+                    # while margin/return fields are fractions.
+                    percent = float(value) if label == "Dividend Yield" else float(value) * 100
+                    lines.append(f"{label}: {percent:.10g}%")
+                else:
+                    lines.append(f"{label}: {value}")
 
         # 添加头部信息
         header = f"# Company Fundamentals for {ticker.upper()}\n"
@@ -672,7 +732,7 @@ def get_balance_sheet(
     """
     """Get balance sheet data from yfinance."""
     try:
-        ticker_obj = yf.Ticker(ticker.upper())
+        ticker_obj = yf.Ticker(normalize_yfinance_symbol(ticker))
 
         # 【教学】根据 freq 参数选择数据类型
         # 季度数据：quarterly_balance_sheet（默认，更及时）
@@ -698,8 +758,19 @@ def get_balance_sheet(
         # Add header information
         header = f"# Balance Sheet data for {ticker.upper()} ({freq})\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        
-        return header + csv_string
+        period = _latest_financial_period(data)
+        header += f"# Fiscal period latest: {period}\n"
+        evidence = _financial_evidence_block(data, [
+            ("Total Assets", ["Total Assets"]),
+            ("Current Assets", ["Current Assets"]),
+            ("Cash", ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents" ]),
+            ("Inventory", ["Inventory"]),
+            ("Total Liabilities", ["Total Liabilities Net Minority Interest", "Total Liabilities"]),
+            ("Stockholders Equity", ["Stockholders Equity", "Common Stock Equity"]),
+            ("Total Debt", ["Total Debt"]),
+        ])
+
+        return header + evidence + "\n\n" + csv_string
         
     except Exception as e:
         return f"Error retrieving balance sheet for {ticker}: {str(e)}"
@@ -742,7 +813,7 @@ def get_cashflow(
     """
     """Get cash flow data from yfinance."""
     try:
-        ticker_obj = yf.Ticker(ticker.upper())
+        ticker_obj = yf.Ticker(normalize_yfinance_symbol(ticker))
 
         if freq.lower() == "quarterly":
             data = yf_retry(lambda: ticker_obj.quarterly_cashflow)
@@ -758,8 +829,16 @@ def get_cashflow(
         
         header = f"# Cash Flow data for {ticker.upper()} ({freq})\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        
-        return header + csv_string
+        period = _latest_financial_period(data)
+        header += f"# Fiscal period latest: {period}\n"
+        evidence = _financial_evidence_block(data, [
+            ("Operating Cash Flow", ["Operating Cash Flow"]),
+            ("Free Cash Flow", ["Free Cash Flow"]),
+            ("Capital Expenditure", ["Capital Expenditure"]),
+            ("Cash Dividends Paid", ["Cash Dividends Paid"]),
+        ])
+
+        return header + evidence + "\n\n" + csv_string
         
     except Exception as e:
         return f"Error retrieving cash flow for {ticker}: {str(e)}"
@@ -803,7 +882,7 @@ def get_income_statement(
     """
     """Get income statement data from yfinance."""
     try:
-        ticker_obj = yf.Ticker(ticker.upper())
+        ticker_obj = yf.Ticker(normalize_yfinance_symbol(ticker))
 
         if freq.lower() == "quarterly":
             data = yf_retry(lambda: ticker_obj.quarterly_income_stmt)
@@ -819,8 +898,21 @@ def get_income_statement(
         
         header = f"# Income Statement data for {ticker.upper()} ({freq})\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        
-        return header + csv_string
+        period = _latest_financial_period(data)
+        header += f"# Fiscal period latest: {period}\n"
+        evidence = _financial_evidence_block(data, [
+            ("Revenue", ["Total Revenue", "Operating Revenue"]),
+            ("Gross Profit", ["Gross Profit"]),
+            ("Operating Income", ["Operating Income", "Operating Income As Reported"]),
+            ("Net Income", ["Net Income", "Net Income From Continuing Operation Net Minority Interest"]),
+        ])
+        revenue = next((data.at[name, data.columns[0]] for name in ("Total Revenue", "Operating Revenue") if name in data.index), None)
+        gross_profit = data.at["Gross Profit", data.columns[0]] if "Gross Profit" in data.index else None
+        if revenue and gross_profit is not None and not pd.isna(gross_profit):
+            margin = float(gross_profit) / float(revenue) * 100
+            evidence += f"\nGross Margin ({period}): {margin:.10g}%"
+
+        return header + evidence + "\n\n" + csv_string
         
     except Exception as e:
         return f"Error retrieving income statement for {ticker}: {str(e)}"

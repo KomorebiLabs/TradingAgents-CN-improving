@@ -9,15 +9,36 @@ so the migration is contract-first without breaking any caller.
 from __future__ import annotations
 
 import re
+import os
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from tradingagents.default_config import DEFAULT_CONFIG
 
 ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
+
+
+def normalize_trade_date(trade_date: str, today: Optional[date] = None) -> tuple[str, Optional[str]]:
+    """Clamp a future analysis date to today and return an audit warning.
+
+    Invalid dates are left unchanged so callers can surface the original
+    validation error instead of silently inventing a date.
+    """
+    try:
+        requested = date.fromisoformat(str(trade_date))
+    except (TypeError, ValueError):
+        return str(trade_date), None
+    current = today or datetime.now().date()
+    if requested <= current:
+        return requested.isoformat(), None
+    normalized = current.isoformat()
+    return normalized, (
+        f"[B2/date-bound] trade_date {requested.isoformat()} is in the future; "
+        f"clamped to {normalized}"
+    )
 
 # Portfolio/Research Manager write `Confidence: N/100` inside <decision> when
 # enable_confidence_score is on (see agents/managers/{research_manager,portfolio_manager}.py).
@@ -95,6 +116,8 @@ class AnalysisRequest:
     thinking_level: Optional[str] = None       # Google
     reasoning_effort: Optional[str] = None     # OpenAI
     anthropic_effort: Optional[str] = None     # Anthropic
+    portfolio_context: Optional[Dict[str, Any]] = None  # B3: holdings + constraints
+    hitl_mode: Optional[str] = None            # A5: "interactive" gates before final decision
 
     @classmethod
     def from_questionnaire(cls, config: Dict[str, Any]) -> "AnalysisRequest":
@@ -120,9 +143,19 @@ class AnalysisRequest:
     @classmethod
     def default_for(cls, ticker: str, trade_date: str | None = None) -> "AnalysisRequest":
         """Non-interactive defaults: all analysts, depth 1, config-default models."""
+        provider = os.getenv("LLM_PROVIDER", DEFAULT_CONFIG["llm_provider"])
+        deep_model = os.getenv("DEEP_THINK_LLM", DEFAULT_CONFIG["deep_think_llm"])
+        quick_model = os.getenv("QUICK_THINK_LLM", DEFAULT_CONFIG["quick_think_llm"])
+        backend_url = os.getenv("BACKEND_URL", DEFAULT_CONFIG.get("backend_url"))
+        if provider.lower() == "agnes" and "BACKEND_URL" not in os.environ:
+            backend_url = "https://apihub.agnes-ai.com/v1"
         return cls(
             ticker=ticker,
             trade_date=trade_date or datetime.now().strftime("%Y-%m-%d"),
+            llm_provider=provider,
+            deep_think_llm=deep_model,
+            quick_think_llm=quick_model,
+            backend_url=backend_url,
         )
 
     def to_graph_config(self) -> Dict[str, Any]:
@@ -138,6 +171,13 @@ class AnalysisRequest:
         graph_config["openai_reasoning_effort"] = self.reasoning_effort
         graph_config["anthropic_effort"] = self.anthropic_effort
         graph_config["output_language"] = self.output_language
+        # PIT boundary: dataflow tools use this run-scoped cutoff to reject
+        # model-generated future end/current dates at the vendor boundary.
+        graph_config["trade_date"] = self.trade_date
+        if self.portfolio_context is not None:
+            graph_config["portfolio_context"] = self.portfolio_context
+        if self.hitl_mode is not None:
+            graph_config["hitl_mode"] = self.hitl_mode
         return graph_config
 
     def analyst_keys(self) -> List[str]:

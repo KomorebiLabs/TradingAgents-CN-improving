@@ -15,6 +15,9 @@ from tradingagents.dataflows.akshare.news import (
     _render_cn_stock_news,
 )
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 def _render_calendar_entry(title: str, date: str, details: str = "") -> str:
     """Render a calendar entry for display."""
@@ -174,8 +177,9 @@ def get_akshare_cn_m_a_news(
                 ])
                 mask = news_df["新闻标题"].astype(str).str.contains(keyword_pattern, na=False)
                 results.append(news_df[mask])
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] events.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not results:
         # Fallback: try stock concept news
@@ -187,8 +191,9 @@ def get_akshare_cn_m_a_news(
                     "# (M&A specific news not found, showing industry context)\n\n"
                     + _render_cn_stock_news(concept_df.head(limit))
                 )
-        except Exception:
-            pass
+        except Exception as _exc_e3:
+            logger.warning("[E3] events.py: previously-silent failure surfaced: %s", _exc_e3)
+        pass
 
         return f"No M&A related news found for {code}.{exchange.upper()} in the past {look_back_days} days"
 

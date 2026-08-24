@@ -49,8 +49,9 @@ DEFAULT_CONFIG = {
     "data_vendors": {
         "core_stock_apis": "tencent_finance,sina_finance,baostock_data,legacy_yfinance",
         "technical_indicators": "tencent_finance,sina_finance,legacy_alpha_vantage,legacy_yfinance",
-        "fundamental_data": "ths_data,legacy_akshare,legacy_yfinance",
+        "fundamental_data": "tushare_pro,ths_data,legacy_akshare,legacy_yfinance",
         "news_data": "ths_data,baidu_finance,legacy_akshare,legacy_yfinance",
+        "announcement_data": "cninfo_official",
         "cn_macro_data": "baidu_finance,legacy_akshare",
         "cn_event_data": "ths_data,legacy_akshare",
     },

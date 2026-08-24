@@ -40,6 +40,7 @@ from tradingagents.agents.utils.rag import (
     CNNewsRetrievalConfig,
     RAGConfig,
 )
+from tradingagents.agents.utils.untrusted_wrap import sanitize_untrusted
 
 
 def _get_env_bool(key: str, default: bool = False) -> bool:
@@ -156,7 +157,10 @@ def get_rag_news(
 
         if results:
             # Format RAG results
-            return retriever.format_for_llm_context(results, max_results=10)
+            return sanitize_untrusted(
+                retriever.format_for_llm_context(results, max_results=10),
+                source="rag_news",
+            )
 
     except Exception as e:
         # RAG failed, fall back to raw
@@ -208,7 +212,10 @@ def get_rag_sector_news(
         )
 
         if results:
-            return retriever.format_for_llm_context(results, max_results=limit)
+            return sanitize_untrusted(
+                retriever.format_for_llm_context(results, max_results=limit),
+                source="rag_sector_news",
+            )
 
     except Exception:
         pass

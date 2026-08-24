@@ -99,13 +99,35 @@ class VendorHttp:
                 return resp.text
             except requests.exceptions.HTTPError as exc:
                 # rate-limit / ban / server error: do NOT retry (anti-ban guard)
-                status = exc.response.status_code if exc.response is not None else "?"
-                logger.warning("[vendor:tencent] HTTP %s on %s — not retrying (anti-ban guard)", status, url)
+                response = exc.response
+                status = response.status_code if response is not None else "?"
+                retry_after = (
+                    response.headers.get("Retry-After")
+                    if response is not None and hasattr(response, "headers")
+                    else None
+                )
+                if status == 429 and retry_after:
+                    logger.warning(
+                        "[vendor:tencent] HTTP 429 on %s — Retry-After=%s; "
+                        "not retrying (anti-ban guard)",
+                        url,
+                        retry_after,
+                    )
+                else:
+                    logger.warning(
+                        "[vendor:tencent] HTTP %s on %s — not retrying (anti-ban guard)",
+                        status,
+                        url,
+                    )
                 return None
             except retryable as exc:
                 last_exc = exc
                 if attempt < max_retries:
-                    delay = float(getattr(self._ds_config, "retry_delay", 1.0)) * (2 ** attempt)
+                    base_delay = float(getattr(self._ds_config, "retry_delay", 1.0)) * (2 ** attempt)
+                    jitter = random.uniform(
+                        0.0, max(0.0, float(getattr(self._ds_config, "random_jitter", 0.1)))
+                    )
+                    delay = base_delay + jitter
                     logger.warning(
                         "[vendor:tencent] attempt %d/%d transient failure: %s — retry in %.1fs",
                         attempt + 1,

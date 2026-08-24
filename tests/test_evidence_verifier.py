@@ -145,6 +145,25 @@ class TestRunVerification:
         assert annotated.count("[verified]") == 0  # unverified by default here
         assert annotated.count("[unverified]") == 1
 
+    def test_financial_period_in_tool_output_is_usable_pit_evidence(self):
+        reports = {"fundamentals": "2025年净利润为 823.20 亿元。"}
+        state = _state(
+            reports,
+            [
+                "# Income Statement data\n"
+                "# Fiscal period latest: 2025-12-31\n"
+                "Net Income From Continuing Operation Net Minority Interest: "
+                "82320067101.68 元"
+            ],
+        )
+        state["trade_date"] = "2026-08-20"
+
+        verification = run_verification(state)["verification"]
+
+        assert verification["verified"] == 1
+        assert verification["unverified"] == 0
+        assert not any("缺少来源日期" in warning for warning in verification["warnings"])
+
 
 class TestThresholdClaims:
     """A4 taxonomy completion: directional claims verify by direction, not equality."""

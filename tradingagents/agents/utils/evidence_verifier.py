@@ -14,10 +14,11 @@ by tools (ToolMessages in state). Guards against the three verifier traps
                    value INSIDE them; growth/threshold claims are unverified
                    in v1 (no dual-period evidence reconstruction).
 
-Levels: ``verified`` (anchor + dimension + value all match) / ``unverified``
-(anything else). Ambiguity ALWAYS degrades to unverified — a false verified
-is far more dangerous than a false unverified (asymmetric cost rule).
-Derived arithmetic (PE = price / EPS) is deliberately out of v1.
+Levels: ``verified`` (anchor + dimension + value all match), ``derived``
+(explicit arithmetic/derivation, not independently verified), or
+``unverified`` (anything else). Ambiguity ALWAYS degrades to unverified — a
+false verified is far more dangerous than a false unverified (asymmetric cost
+rule).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from langchain_core.messages import ToolMessage
 _METRIC_FAMILIES: Dict[str, Tuple[str, List[str]]] = {
     "net_income": ("currency", ["净利润", "归母净利润", "net income", "net profit"]),
     "revenue": ("currency", ["营收", "营业收入", "revenue"]),
+    "gross_profit": ("currency", ["毛利润", "gross profit"]),
     "gross_margin": ("percent", ["毛利率", "gross margin"]),
     "debt_ratio": ("percent", ["资产负债率", "debt ratio", "负债率"]),
     "pe": ("multiple", ["市盈率", "PE", "P/E"]),
@@ -51,6 +53,11 @@ _RANGE_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:亿|万)?\s*[-~至到]\s*(\d+(?:\.
 
 # growth/threshold words that mark a claim as unverifiable in v1
 _GROWTH_WORDS = ("同比", "环比", "增长", "下降", "涨幅", "跌幅", "yoy", "mom")
+_CONTENT_PERIOD_RE = re.compile(
+    r"(?:fiscal\s+period\s+latest|source\s+period(?:\s+latest)?|"
+    r"data\s+period\s+latest)\s*[:=]\s*(\d{4}-\d{2}-\d{2})",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -72,6 +79,7 @@ class Claim:
 class VerificationResult:
     claims_total: int = 0
     verified: int = 0
+    derived: int = 0
     unverified: int = 0
     warnings: List[str] = field(default_factory=list)
 
@@ -82,6 +90,7 @@ class VerificationResult:
             "",
             f"- Numeric claims checked: **{self.claims_total}**",
             f"- Verified against tool data: **{self.verified}** ({pct})",
+            f"- Derived (not independently verified): **{self.derived}**",
             f"- Unverified (no matching tool evidence): **{self.unverified}**",
         ]
         if self.warnings:
@@ -108,7 +117,9 @@ def _norm_currency(value: float, unit: Optional[str], scale: Optional[str]) -> O
 
 
 def _split_sentences(text: str) -> List[str]:
-    parts = re.split(r"(?<=[。；;.!?\n])", text)
+    # Do not split the decimal point in values such as ``823.20``; financial
+    # reports use decimal numbers heavily and splitting them destroys claims.
+    parts = re.split(r"(?<=[。；;!?\n])|(?<!\d)\.(?!\d)", text)
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -215,12 +226,61 @@ def _tool_evidence_sentences(messages: List[Any]) -> List[Tuple[str, str]]:
     return out
 
 
+def _message_metadata(message: Any) -> Dict[str, Any]:
+    """Collect optional provenance metadata without changing ToolMessage use."""
+    metadata: Dict[str, Any] = {}
+    for attr in ("additional_kwargs", "response_metadata", "metadata"):
+        value = getattr(message, attr, None)
+        if isinstance(value, dict):
+            metadata.update(value)
+    return metadata
+
+
+def _tool_evidence_records(messages: List[Any]) -> List[Tuple[str, str, Dict[str, Any]]]:
+    """Evidence sentences plus optional source metadata for PIT filtering."""
+    out: List[Tuple[str, str, Dict[str, Any]]] = []
+    for message in messages or []:
+        if not isinstance(message, ToolMessage):
+            continue
+        content = str(getattr(message, "content", "") or "")
+        tool = str(getattr(message, "name", "tool"))
+        metadata = _message_metadata(message)
+        # Financial vendors often return a historical period in the body but
+        # the framework does not preserve vendor metadata on ToolMessage.
+        # Use an explicit period marker emitted by our adapters as PIT data;
+        # never infer it from the wall-clock retrieval timestamp.
+        if not _metadata_date(metadata):
+            period = _CONTENT_PERIOD_RE.search(content)
+            if period:
+                metadata["data_date"] = period.group(1)
+        for sentence in _split_sentences(content):
+            out.append((sentence, tool, metadata))
+    return out
+
+
+def _metadata_date(metadata: Dict[str, Any]) -> Optional[str]:
+    """Return the first recognized ISO-like source date, if present."""
+    for key in ("as_of", "data_date", "trade_date", "date", "fetched_at"):
+        value = metadata.get(key)
+        if value:
+            match = re.search(r"\d{4}-\d{2}-\d{2}", str(value))
+            if match:
+                return match.group(0)
+    return None
+
+
+def _is_derived_claim(claim: Claim) -> bool:
+    markers = ("推导", "计算得出", "计算得到", "由此可得", "derived", "calculated")
+    return any(marker in claim.sentence.lower() for marker in markers)
+
+
 def verify_claim(claim: Claim, evidence: List[Tuple[str, str]]) -> Claim:
     """Anchor + dimension + value matching against tool evidence sentences."""
-    if claim.usd:
+    if claim.usd or claim.level == "derived":
         return claim  # no FX table in v1: USD stays unverified by definition
     synonyms = _METRIC_FAMILIES[claim.family][1]
-    for sentence, _tool in evidence:
+    for item in evidence:
+        sentence, _tool = item[:2]
         # semantic anchor: evidence sentence must mention the metric family
         if not any(syn.lower() in sentence.lower() for syn in synonyms):
             continue
@@ -304,9 +364,30 @@ def run_verification(state: Dict[str, Any], report_keys=("market", "social", "ne
     annotated analyst_reports + a verification summary block (warnings capped).
     """
     reports_block = dict(state.get("analyst_reports") or {})
-    evidence = _tool_evidence_sentences(state.get("messages", []))
+    trade_date = str(state.get("trade_date") or "")
+    evidence_records = _tool_evidence_records(state.get("messages", []))
+    future_evidence = 0
+    missing_source_date = 0
+    evidence: List[Tuple[str, str, Dict[str, Any]]] = []
+    for sentence, tool, metadata in evidence_records:
+        source_date = _metadata_date(metadata)
+        if trade_date and source_date and source_date > trade_date:
+            future_evidence += 1
+            continue
+        if trade_date and not source_date:
+            missing_source_date += 1
+            continue
+        evidence.append((sentence, tool, metadata))
 
     result = VerificationResult()
+    if future_evidence:
+        result.warnings.append(
+            f"[A4/PIT] 忽略 {future_evidence} 条晚于交易日 {trade_date} 的工具证据"
+        )
+    if missing_source_date:
+        result.warnings.append(
+            f"[A4/PIT] {missing_source_date} 条工具证据缺少来源日期，保持 unverified"
+        )
     annotated_block: Dict[str, str] = {}
     for key in report_keys:
         text = reports_block.get(key) or state.get(
@@ -316,11 +397,19 @@ def run_verification(state: Dict[str, Any], report_keys=("market", "social", "ne
         ) or ""
         if not text:
             continue
-        claims = [verify_claim(c, evidence) for c in extract_claims(text, key)]
+        claims = []
+        for claim in extract_claims(text, key):
+            if _is_derived_claim(claim):
+                claim.level = "derived"
+                claims.append(claim)
+            else:
+                claims.append(verify_claim(claim, evidence))
         result.claims_total += len(claims)
         for c in claims:
             if c.level == "verified":
                 result.verified += 1
+            elif c.level == "derived":
+                result.derived += 1
             else:
                 result.unverified += 1
                 if len(result.warnings) < MAX_WARNINGS:
@@ -333,6 +422,7 @@ def run_verification(state: Dict[str, Any], report_keys=("market", "social", "ne
         "verification": {
             "claims_total": result.claims_total,
             "verified": result.verified,
+            "derived": result.derived,
             "unverified": result.unverified,
             "warnings": result.warnings,
             "summary": result.summary_markdown(),

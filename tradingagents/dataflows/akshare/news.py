@@ -11,6 +11,35 @@ import pandas as pd
 
 from tradingagents.dataflows.akshare._shared import _normalize_cn_symbol, _render_bullets, _require_akshare, _throttle_eastmoney, _throttle_news, _truncate_text
 
+import logging
+logger = logging.getLogger(__name__)
+
+_STOCK_NEWS_CACHE = {}
+_STOCK_NEWS_CACHE_TTL_SECONDS = 300.0
+_STOCK_NEWS_CACHE_LOCK = threading.Lock()
+
+
+def _get_stock_news_snapshot(ak, code: str) -> pd.DataFrame:
+    """Fetch one EastMoney snapshot per symbol during the short cache window.
+
+    The analyst commonly asks for several overlapping date ranges. Repeating
+    the same EastMoney request for each range is both wasteful and likely to
+    trigger HTTP 403 responses. Date filtering remains local and PIT-safe.
+    """
+    now = time.monotonic()
+    with _STOCK_NEWS_CACHE_LOCK:
+        cached = _STOCK_NEWS_CACHE.get(code)
+        if cached and now - cached[0] < _STOCK_NEWS_CACHE_TTL_SECONDS:
+            return cached[1].copy()
+
+    _throttle_eastmoney.wait()
+    snapshot = ak.stock_news_em(symbol=code)
+    if snapshot is None:
+        snapshot = pd.DataFrame()
+    with _STOCK_NEWS_CACHE_LOCK:
+        _STOCK_NEWS_CACHE[code] = (time.monotonic(), snapshot.copy())
+    return snapshot
+
 
 def _prepare_cn_stock_news(df: pd.DataFrame, start_date: str, end_date: str, limit: int = 8) -> pd.DataFrame:
     if df.empty:
@@ -93,14 +122,17 @@ def _render_macro_events(prepared: pd.DataFrame) -> str:
     return "\n\n".join(entries)
 
 
-def get_akshare_news(symbol: str, start_date: str, end_date: str) -> str:
+def get_akshare_news(ticker: str, start_date: str, end_date: str) -> str:
+    # Tool schemas call the first argument ``ticker``. Keep a local ``symbol``
+    # name for the normalization/rendering logic below and accept positional
+    # calls from existing dataflow code as before.
+    symbol = ticker
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
     ak = _require_akshare()
     code, exchange = _normalize_cn_symbol(symbol)
 
-    _throttle_eastmoney.wait()  # 节流：等待 1.5 秒
-    df = ak.stock_news_em(symbol=code)
+    df = _get_stock_news_snapshot(ak, code)
     if df.empty:
         return f"No CN stock news found for symbol '{symbol}' between {start_date} and {end_date}"
 
@@ -128,8 +160,9 @@ def get_akshare_global_news(curr_date: str, look_back_days: int = 7, limit: int 
         date_str = (target_date - timedelta(days=offset)).strftime("%Y%m%d")
         try:
             frames.append(ak.news_economic_baidu(date=date_str))
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not frames:
         return f"No macro news found around {curr_date}"
@@ -156,8 +189,9 @@ def get_akshare_cn_policy_news(curr_date: str, look_back_days: int = 7, limit: i
         date_str = (target_date - timedelta(days=offset)).strftime("%Y%m%d")
         try:
             frames.append(ak.news_economic_baidu(date=date_str))
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not frames:
         return f"No CN policy-sensitive macro events found around {curr_date}"
@@ -269,8 +303,9 @@ def get_akshare_cn_tech_sector_news(
         stock_df = ak.stock_news_em(symbol=code)
         if not stock_df.empty:
             stock_news.append(stock_df)
-    except Exception:
-        pass
+    except Exception as _exc_e3:
+        logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+    pass
 
     # Get macro tech news from economic calendar
     macro_news = []
@@ -280,8 +315,9 @@ def get_akshare_cn_tech_sector_news(
             macro_df = ak.news_economic_baidu(date=date_str)
             if not macro_df.empty:
                 macro_news.append(macro_df)
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     # Prepare stock news with tech keywords
     tech_keywords = [
@@ -340,8 +376,9 @@ def get_akshare_cn_new_energy_news(
         date_str = (target_date - timedelta(days=offset)).strftime("%Y%m%d")
         try:
             frames.append(ak.news_economic_baidu(date=date_str))
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not frames:
         return f"No new energy sector news found around {curr_date}"
@@ -390,8 +427,9 @@ def get_akshare_cn_pharma_news(
         date_str = (target_date - timedelta(days=offset)).strftime("%Y%m%d")
         try:
             frames.append(ak.news_economic_baidu(date=date_str))
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not frames:
         return f"No pharmaceutical sector news found around {curr_date}"
@@ -438,8 +476,9 @@ def get_akshare_cn_real_estate_news(
         date_str = (target_date - timedelta(days=offset)).strftime("%Y%m%d")
         try:
             frames.append(ak.news_economic_baidu(date=date_str))
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not frames:
         return f"No real estate sector news found around {curr_date}"
@@ -488,8 +527,9 @@ def get_akshare_cn_fintech_news(
         date_str = (target_date - timedelta(days=offset)).strftime("%Y%m%d")
         try:
             frames.append(ak.news_economic_baidu(date=date_str))
-        except Exception:
-            continue
+        except Exception as _exc_e3:
+            logger.warning("[E3] news.py: previously-silent failure surfaced: %s", _exc_e3)
+        continue
 
     if not frames:
         return f"No financial technology sector news found around {curr_date}"

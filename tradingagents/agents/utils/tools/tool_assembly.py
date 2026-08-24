@@ -23,6 +23,7 @@ def _lazy_tool_imports():
     from tradingagents.agents.utils.news_data_tools import (
         get_cn_market_flow,
         get_cn_policy_news,
+        get_announcements,
         get_news,
         get_insider_transactions,
         get_global_news,
@@ -51,6 +52,7 @@ def _lazy_tool_imports():
         "get_income_statement": get_income_statement,
         "get_cn_market_flow": get_cn_market_flow,
         "get_cn_policy_news": get_cn_policy_news,
+        "get_announcements": get_announcements,
         "get_news": get_news,
         "get_insider_transactions": get_insider_transactions,
         "get_global_news": get_global_news,
@@ -85,7 +87,7 @@ def get_tools_for_analyst(analyst_type: str, ticker: str = "", config: Dict = No
             {
                 "market": [lazy["get_stock_data"], lazy["get_indicators"]],
                 "social": [lazy["get_news"]],
-                "news": [lazy["get_news"], lazy["get_global_news"], lazy["get_insider_transactions"], lazy["get_cn_policy_news"]],
+                "news": [lazy["get_news"], lazy["get_announcements"], lazy["get_global_news"], lazy["get_insider_transactions"], lazy["get_cn_policy_news"]],
                 "fundamentals": [lazy["get_fundamentals"], lazy["get_balance_sheet"], lazy["get_cashflow"], lazy["get_income_statement"]],
             }
         )
