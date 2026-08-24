@@ -56,6 +56,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_segment_advisory,
     get_language_instruction,
     get_tools_for_analyst,
+    suppress_repeated_tool_calls,
 )
 from tradingagents.agents.prompts import build_collaboration_system_prompt
 from tradingagents.agents.utils.state_helpers import sync_report_updates
@@ -197,6 +198,7 @@ def create_news_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
         result = chain.invoke(state["messages"])
+        suppress_repeated_tool_calls(result, state["messages"], "News analyst")
 
         # ─────────────────────────────────────────────────────────────────
         # 第七步：处理返回值

@@ -10,11 +10,24 @@ Usage:
 
 from __future__ import annotations
 
+import sys
+
 import typer
 
 from tradingagents import __version__
 from tradingagents.ui.theme import TRADING_THEME
 from tradingagents.ui.terminal_mascot import print_komo
+
+
+def _ensure_utf8_stdio(stdout=None, stderr=None) -> None:
+    """Make Unicode-rich CLI output safe on legacy Windows code pages."""
+    for stream in (stdout or sys.stdout, stderr or sys.stderr):
+        encoding = str(getattr(stream, "encoding", "") or "").lower().replace("-", "")
+        if encoding not in {"utf8", "utf8sig"} and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+_ensure_utf8_stdio()
 
 # Load API keys from .env before any subcommand constructs LLM clients.
 # Best-effort: system environment variables always win over .env values.
@@ -62,7 +75,7 @@ def analyze_cmd(
         # same checkpoint thread.
         loaded = AnalysisService.resume_run(resume)
         result = run_analysis(loaded.request, run_id=resume, resume=True)
-        print_summary(result, module_type="analyzer")
+        print_summary(result, module_type="analyzer", prompt_for_report=False)
         return
 
     from cli.analyze.app import run as analyze_run
@@ -83,7 +96,7 @@ def analyze_cmd(
         trade_date=date or datetime.now().strftime("%Y-%m-%d"),
     )
     result = run_analysis(request, hitl=hitl)
-    print_summary(result, module_type="analyzer")
+    print_summary(result, module_type="analyzer", prompt_for_report=False)
 
 
 # Subcommand: screener (Stage 1) — registered as a sub-app so that

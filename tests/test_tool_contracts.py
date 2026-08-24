@@ -6,6 +6,7 @@ import pytest
 
 import tradingagents.default_config as default_config
 from tradingagents.agents.utils import news_data_tools, technical_indicators_tools
+from tradingagents.agents.utils.tools.tool_assembly import get_tools_for_execution_node
 from tradingagents.dataflows import interface
 from tradingagents.dataflows.config import set_config
 
@@ -124,3 +125,22 @@ def test_news_tool_wrapper_forwards_date_range_to_router(monkeypatch):
         "args": ("600519", "2026-08-01", "2026-08-20"),
         "kwargs": {},
     }
+
+
+def test_news_execution_node_contains_every_runtime_bound_cn_macro_tool():
+    """ToolNode must be a superset of ticker-specific model bindings."""
+    config = {
+        **default_config.DEFAULT_CONFIG,
+        "company_of_interest": "",
+    }
+
+    runtime_names = {
+        tool.name
+        for tool in get_tools_for_execution_node("news", config)
+    }
+
+    assert {
+        "get_cn_macro_data",
+        "get_cn_rate_outlook",
+        "get_cn_trade_data",
+    } <= runtime_names

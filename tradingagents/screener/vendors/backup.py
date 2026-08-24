@@ -17,13 +17,21 @@ from tradingagents.screener.vendors._guard import vendor_call
 __all__ = ["fetch_hist_baostock", "fetch_hist_yfinance"]
 
 
+def _hyphenate_date(value: str) -> str:
+    """Return the ISO date shape required by BaoStock and yfinance."""
+    value = str(value).strip()
+    if len(value) == 8 and value.isdigit():
+        return f"{value[:4]}-{value[4:6]}-{value[6:]}"
+    return value
+
+
 @vendor_call("backup.fetch_hist_baostock")
 def fetch_hist_baostock(http: VendorHttp, ticker: str, start_date: str, end_date: str, adjust: str = "qfq"):
     import baostock as bs
 
     sym = normalize_ticker_for_baostock(ticker)
-    sd = start_date.replace("-", "")
-    ed = end_date.replace("-", "")
+    sd = _hyphenate_date(start_date)
+    ed = _hyphenate_date(end_date)
 
     login_result = bs.login()
     if login_result is None or login_result.error_code != "0":
@@ -63,9 +71,11 @@ def fetch_hist_yfinance(http: VendorHttp, requester, ticker: str, start_date: st
     import yfinance as yf
 
     sym = normalize_ticker_for_yfinance(ticker)
+    sd = _hyphenate_date(start_date)
+    ed = _hyphenate_date(end_date)
     ticker_obj = yf.Ticker(sym)
     with http.spoof():
         result = requester.request(
-            ticker_obj.history, start=start_date, end=end_date
+            ticker_obj.history, start=sd, end=ed
         )
     return normalize_yfinance_hist_frame(result)

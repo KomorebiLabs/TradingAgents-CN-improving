@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import logging
+import queue
+import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
@@ -16,6 +19,32 @@ from tradingagents.ui.screener_console import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _bounded_call(label, fn, timeout_seconds: float, default=None):
+    """Run a vendor boundary with a wall-clock budget on every platform."""
+    result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+    def worker():
+        try:
+            result_queue.put((True, fn()), block=False)
+        except Exception as exc:
+            result_queue.put((False, exc), block=False)
+
+    thread = threading.Thread(
+        target=worker, name=f"policy-vendor-{label}", daemon=True
+    )
+    thread.start()
+    thread.join(max(0.01, float(timeout_seconds)))
+    if thread.is_alive():
+        return default, f"[WARN] {label} timeout after {timeout_seconds:.2f}s; degraded"
+    try:
+        ok, value = result_queue.get_nowait()
+    except queue.Empty:
+        return default, f"[WARN] {label} returned no result; degraded"
+    if ok:
+        return value, ""
+    return default, f"[WARN] {label} failed: {value}; degraded"
 
 
 @dataclass
@@ -51,12 +80,44 @@ class PolicyStrategy:
     def run(self, universe: List[str], trade_date: str) -> StrategyOutcome:
         console.print(f"[cyan]>> PolicyStrategy[/cyan]  [dim]{len(universe)} stocks...", end="\r")
 
-        capability = self.data_access.validate_interface_assumptions(trade_date=trade_date)
         policy_config = self.config.get("strategies", {}).get("policy", {})
         th = policy_config.get("thresholds", {})
         concept_conviction_low = float(th.get("concept_conviction_low", 52.0))
         max_concepts = int(policy_config.get("max_concepts", 5))
         max_stocks_per_concept = int(policy_config.get("max_stocks_per_concept", 5))
+        request_timeout = float(policy_config.get("request_timeout_seconds", 20.0))
+        stage_timeout = float(policy_config.get("stage_timeout_seconds", 120.0))
+        stage_deadline = time.monotonic() + max(1.0, stage_timeout)
+        runtime_warnings: List[str] = []
+
+        def call_vendor(label, fn, default=None):
+            remaining = stage_deadline - time.monotonic()
+            if remaining <= 0:
+                runtime_warnings.append(
+                    f"[WARN] PolicyStrategy stage timeout ({stage_timeout:.2f}s); skipped {label}"
+                )
+                return default
+            console.print(f"[dim]  Policy heartbeat: {label}...[/dim]", end="\r")
+            value, warning = _bounded_call(
+                label, fn, min(request_timeout, remaining), default
+            )
+            if warning:
+                runtime_warnings.append(warning)
+                _logger.warning(warning)
+            return value
+
+        capability = call_vendor(
+            "validate_interface_assumptions",
+            lambda: self.data_access.validate_interface_assumptions(
+                trade_date=trade_date
+            ),
+            default={
+                "warnings": ["[WARN] capability probe unavailable; policy degraded"],
+                "strategy_capabilities": {"policy": {"status_hint": "degraded"}},
+                "concept_list_verified": False,
+                "freshness": [],
+            },
+        )
 
         # A2: build full threshold_snapshot from config for output audit
         threshold_snapshot = {k: v for k, v in th.items()}
@@ -94,7 +155,10 @@ class PolicyStrategy:
             ("399006", "_cy50_members", "创业板指"),
         ]:
             try:
-                df = self.data_access.fetch_index_constituents(_index_code)
+                df = call_vendor(
+                    f"index_constituents:{_index_code}",
+                    lambda code=_index_code: self.data_access.fetch_index_constituents(code),
+                )
                 if df is not None and not getattr(df, "empty", True):
                     cols = list(df.columns)
                     code_col = next((c for c in cols if "成分券代码" in str(c) or str(c).lower() in ("code", "symbol")), None)
@@ -106,12 +170,17 @@ class PolicyStrategy:
                 pass
 
         concept_df = (
-            self.data_access.fetch_concept_boards()
+            call_vendor("concept_boards", self.data_access.fetch_concept_boards)
             if concept_verified and hasattr(self.data_access, "fetch_concept_boards")
             else None
         )
         news_df = (
-            self.data_access.fetch_policy_news_baidu(trade_date, look_back_days=7, limit=24)
+            call_vendor(
+                "policy_news_baidu",
+                lambda: self.data_access.fetch_policy_news_baidu(
+                    trade_date, look_back_days=7, limit=24
+                ),
+            )
             if hasattr(self.data_access, "fetch_policy_news_baidu")
             else None
         )
@@ -127,7 +196,13 @@ class PolicyStrategy:
         # H6 OPTIMIZATION: single batch fetch of all concept constituents upfront (O(m) API calls)
         # Instead of per-stock per-concept fetching. Universe loop below only does O(1) dict lookups.
         console.print(f"[cyan]  Loading concept constituents[/cyan]  [dim]{len(selected_concepts)} concepts...[/dim]", end="\r")
-        concept_constituents = self._load_concept_constituents(selected_concepts, max_stocks_per_concept)
+        concept_constituents = call_vendor(
+            "concept_constituents",
+            lambda: self._load_concept_constituents(
+                selected_concepts, max_stocks_per_concept
+            ),
+            default={},
+        )
         universe_codes = {code.zfill(6) for code in universe}
         # H6 OPTIMIZATION: pre-compute universe hits once (O(n+m) set operations)
         universe_hits = self._build_universe_concept_hits(concept_constituents, universe_codes)
@@ -365,7 +440,7 @@ class PolicyStrategy:
 
         _logger.info(f"[Policy] Analysis done: {len(cards)} cards from {total} stocks")
         cards.sort(key=lambda card: card.screening_score, reverse=True)
-        warnings = list(capability.get("warnings", []))
+        warnings = list(capability.get("warnings", [])) + runtime_warnings
         if not concept_verified:
             warnings.append("[WARN] concept list validation not completed; policy strategy runs in degraded mode")
         status = (

@@ -113,6 +113,7 @@ from tradingagents.agents.utils.agent_utils import (
     build_screener_semantic_instruction,
     get_tools_for_analyst,
     get_language_instruction,
+    suppress_repeated_tool_calls,
 )
 from tradingagents.agents.utils.state_helpers import sync_report_updates
 from tradingagents.dataflows.config import get_config
@@ -350,6 +351,7 @@ def create_fundamentals_analyst(llm):
         # 执行后返回 AIMessage（可能包含 tool_calls）
 
         result = chain.invoke(state["messages"])
+        suppress_repeated_tool_calls(result, state["messages"], "Fundamentals analyst")
 
         # ─────────────────────────────────────────────────────────────────
         # 第八步：处理返回值

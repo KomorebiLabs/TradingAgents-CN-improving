@@ -49,6 +49,54 @@ def enforce_execution_profile_output(content: str, execution_profile: Dict[str, 
     return rendered
 
 
+def suppress_repeated_tool_calls(
+    result: Any,
+    prior_messages: List[Any],
+    role: str,
+    max_tool_rounds: int = 3,
+) -> Dict[str, int]:
+    """Bound one analyst tool loop by signature dedupe and a hard round cap."""
+    seen = set()
+    prior_tool_rounds = 0
+    for message in prior_messages:
+        calls = list(getattr(message, "tool_calls", None) or [])
+        if calls:
+            prior_tool_rounds += 1
+        for call in calls:
+            signature = (
+                str(call.get("name") or ""),
+                json.dumps(call.get("args") or {}, sort_keys=True, ensure_ascii=False, default=str),
+            )
+            seen.add(signature)
+
+    current_calls = list(getattr(result, "tool_calls", None) or [])
+    budget_exhausted = prior_tool_rounds >= max(1, int(max_tool_rounds))
+    kept = []
+    suppressed = 0
+    for call in current_calls:
+        signature = (
+            str(call.get("name") or ""),
+            json.dumps(call.get("args") or {}, sort_keys=True, ensure_ascii=False, default=str),
+        )
+        if budget_exhausted or signature in seen:
+            suppressed += 1
+            continue
+        seen.add(signature)
+        kept.append(call)
+
+    result.tool_calls = kept
+    if suppressed and not kept and not str(getattr(result, "content", "") or "").strip():
+        result.content = (
+            f"## {role} data availability\n\n"
+            "Status: unavailable. The analyst tool-loop reached its retry "
+            "budget or requested only calls already attempted with identical "
+            "arguments. Further calls were stopped to prevent token "
+            "amplification. No unsupported "
+            "numeric conclusion may be inferred from this missing evidence."
+        )
+    return {"suppressed": suppressed, "remaining": len(kept)}
+
+
 def enforce_skill_usage(
     content: str,
     injected_skill_names: List[str],
@@ -89,17 +137,21 @@ def enforce_skill_usage(
     }
 
 
-def create_msg_delete():
+def create_msg_delete(completed_role: str = "analyst"):
     def delete_messages(state):
-        """Clear messages and add placeholder for Anthropic compatibility"""
+        """Clear tool-loop history and leave exactly one stable handoff."""
         messages = state["messages"]
 
         # Remove all messages
         removal_operations = [RemoveMessage(id=m.id) for m in messages]
-
-        # Add a minimal placeholder message
-        placeholder = HumanMessage(content="Continue")
-
+        placeholder = HumanMessage(
+            content=(
+                "[SYSTEM_HANDOFF] Prior tool-loop messages were cleared. "
+                "Read canonical state fields and execute only your assigned role. "
+                "This handoff is not evidence."
+            ),
+            id=f"phase-handoff:{completed_role}",
+        )
         return {"messages": removal_operations + [placeholder]}
 
     return delete_messages

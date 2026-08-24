@@ -164,6 +164,7 @@ from tradingagents.agents.utils.agent_utils import (
     derive_semantic_selected_analysts,
     validate_semantic_prompt_slots,
 )
+from tradingagents.agents.utils.tools.tool_assembly import get_tools_for_execution_node
 
 from .conditional_logic import ConditionalLogic
 from .setup import GraphSetup
@@ -351,12 +352,10 @@ class TradingAgentsGraph:
         return kwargs
 
     def _create_tool_nodes(self) -> Dict[str, ToolNode]:
-        """Create tool nodes for different data sources using abstract methods."""
-        company_name = self.config.get("company_of_interest", "")
-        instrument_profile = build_instrument_profile(company_name, self.config)
+        """Create static executors containing every runtime-bindable tool."""
         def _safe_tools(analyst_type: str):
             try:
-                return get_tools_for_analyst(analyst_type, instrument_profile["symbol"], self.config)
+                return get_tools_for_execution_node(analyst_type, self.config)
             except Exception as exc:  # tool assembly must not kill the graph, but the cause must be visible
                 logger.warning("Tool assembly failed for analyst %s: %s", analyst_type, exc)
                 return []
