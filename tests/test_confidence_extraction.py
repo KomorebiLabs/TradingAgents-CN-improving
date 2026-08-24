@@ -8,6 +8,11 @@ initial_confidence fallback; None when neither exists (never faked).
 from __future__ import annotations
 
 from tradingagents.application.contracts import extract_confidence_from_state
+from tradingagents.default_config import DEFAULT_CONFIG
+
+
+def test_confidence_output_is_enabled_by_default():
+    assert DEFAULT_CONFIG["enable_confidence_score"] is True
 
 
 def test_extract_from_decision_block_text():

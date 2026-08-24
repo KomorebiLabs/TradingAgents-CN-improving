@@ -427,6 +427,7 @@ def create_constraint_enforcer_node():
         enforce_portfolio_constraints,
     )
     from tradingagents.agents.utils.exchange_rules import validate_execution_decision
+    import re
 
     def enforcer_node(state: AgentState):
         portfolio = get_config().get("portfolio_context") or {}
@@ -445,7 +446,29 @@ def create_constraint_enforcer_node():
             segment=str(execution_context.get("segment") or ""),
             trade_date=str(state.get("trade_date") or ""),
         )
-        if not raw_overrides and not execution_warnings:
+        verification = dict(state.get("verification") or {})
+        claims_total = int(verification.get("claims_total") or 0)
+        verified = int(verification.get("verified") or 0)
+        evidence_coverage = round(verified / claims_total, 4) if claims_total else None
+        evidence_gate_triggered = claims_total >= 3 and verified == 0
+        confidence = 35 if evidence_gate_triggered else (
+            round(40 + 60 * evidence_coverage)
+            if evidence_coverage is not None else 50
+        )
+        if evidence_gate_triggered:
+            corrected = re.sub(
+                r"\b(?:Buy|Overweight)\b",
+                "Hold",
+                corrected,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            corrected += (
+                "\n\n【INSUFFICIENT_EVIDENCE】关键数字证据覆盖为 "
+                f"{verified}/{claims_total}，系统将积极评级降级为 Hold；"
+                "不得把未验证目标价或宏观数字视为既定事实。"
+            )
+        if not raw_overrides and not execution_warnings and not evidence_gate_triggered:
             return {}
 
         notices = []
@@ -483,6 +506,12 @@ def create_constraint_enforcer_node():
         existing_overrides = list(orchestration.get("constraint_overrides") or [])
         orchestration["constraint_overrides"] = existing_overrides + overrides
         orchestration["execution_rule_warnings"] = execution_warnings
+        orchestration["decision_quality"] = {
+            "confidence": confidence,
+            "evidence_coverage": evidence_coverage,
+            "risk_level": "high" if evidence_gate_triggered else "normal",
+            "evidence_gate_triggered": evidence_gate_triggered,
+        }
         return {
             "final_trade_decision": new_decision,
             "decision_blocks": decision_blocks,
@@ -650,7 +679,7 @@ class GraphSetup:
             analyst_nodes["market"] = create_market_analyst(
                 self.quick_thinking_llm
             )
-            delete_nodes["market"] = create_msg_delete()  # 创建消息清理节点
+            delete_nodes["market"] = create_msg_delete("market")  # 创建消息清理节点
             tool_nodes["market"] = self.tool_nodes["market"]
 
         # 【Social Analyst】社交媒体分析师 - Twitter、Reddit 情绪
@@ -658,7 +687,7 @@ class GraphSetup:
             analyst_nodes["social"] = create_social_media_analyst(
                 self.quick_thinking_llm
             )
-            delete_nodes["social"] = create_msg_delete()
+            delete_nodes["social"] = create_msg_delete("social")
             tool_nodes["social"] = self.tool_nodes["social"]
 
         # 【News Analyst】新闻分析师 - 全球财经新闻
@@ -666,7 +695,7 @@ class GraphSetup:
             analyst_nodes["news"] = create_news_analyst(
                 self.quick_thinking_llm
             )
-            delete_nodes["news"] = create_msg_delete()
+            delete_nodes["news"] = create_msg_delete("news")
             tool_nodes["news"] = self.tool_nodes["news"]
 
         # 【Fundamentals Analyst】基本面分析师 - 财务报表、估值
@@ -674,7 +703,7 @@ class GraphSetup:
             analyst_nodes["fundamentals"] = create_fundamentals_analyst(
                 self.quick_thinking_llm
             )
-            delete_nodes["fundamentals"] = create_msg_delete()
+            delete_nodes["fundamentals"] = create_msg_delete("fundamentals")
             tool_nodes["fundamentals"] = self.tool_nodes["fundamentals"]
 
         return analyst_nodes, delete_nodes, tool_nodes

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -99,8 +101,36 @@ def classify_probe_exception(text: str) -> str:
 def probe_single(name: str, fn: Callable, timeout: float = 30.0) -> ProbeResult:
     """探测单个接口."""
     start = time.time()
+    result_queue: queue.Queue = queue.Queue(maxsize=1)
+
+    def worker() -> None:
+        try:
+            result_queue.put((True, fn()), block=False)
+        except Exception as exc:
+            result_queue.put((False, exc), block=False)
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"screener-probe-{name}",
+        daemon=True,
+    )
+    thread.start()
+    thread.join(max(0.01, float(timeout)))
+    if thread.is_alive():
+        elapsed = time.time() - start
+        return ProbeResult(
+            name=name,
+            ok=False,
+            elapsed=elapsed,
+            detail=f"TimeoutError('probe exceeded {timeout:.2f}s')",
+            classification="timeout",
+            vendor=name.split("_")[0] if "_" in name else name,
+        )
     try:
-        result = fn()
+        ok, value = result_queue.get_nowait()
+        if not ok:
+            raise value
+        result = value
         elapsed = time.time() - start
         shape = getattr(result, "shape", None) if result is not None else None
         empty = bool(getattr(result, "empty", False)) if result is not None else True
@@ -114,7 +144,7 @@ def probe_single(name: str, fn: Callable, timeout: float = 30.0) -> ProbeResult:
             classification="ok" if ok else "empty",
             vendor=name.split("_")[0] if "_" in name else name,
         )
-    except Exception as exc:
+    except (Exception, queue.Empty) as exc:
         elapsed = time.time() - start
         return ProbeResult(
             name=name,

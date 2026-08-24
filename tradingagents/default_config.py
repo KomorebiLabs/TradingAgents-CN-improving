@@ -32,7 +32,7 @@ DEFAULT_CONFIG = {
     "orchestration_compression_threshold_chars": 36000,
 
     # Experimental prompt controls
-    "enable_confidence_score": False,
+    "enable_confidence_score": True,
     # Instrument profiling and skill-mounting controls
     "instrument_skill_rules": {
         "cn_equity": ["cn_market_data", "cn_macro_news", "cn_fund_flow_proxy"],

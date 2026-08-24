@@ -145,3 +145,27 @@ def get_tools_for_analyst(analyst_type: str, ticker: str = "", config: Dict = No
         return [lazy["get_fundamentals"]]
 
     return tools
+
+
+def get_tools_for_execution_node(analyst_type: str, config: Dict = None) -> List:
+    """Return the superset a static LangGraph ToolNode may need to execute.
+
+    Analyst nodes bind a ticker-specific subset at runtime, while ToolNode is
+    compiled before stream_analysis receives its ticker. Building the executor
+    from only company_of_interest made valid runtime calls appear unregistered.
+    The model still sees only its narrower binding.
+    """
+    config = config or get_config()
+    representative_symbols = (
+        str(config.get("company_of_interest") or ""),
+        "600000.SH",
+        "300001.SZ",
+        "688001.SH",
+        "800001.BJ",
+        "AAPL.NASDAQ",
+    )
+    by_name: Dict[str, Any] = {}
+    for symbol in representative_symbols:
+        for tool in get_tools_for_analyst(analyst_type, symbol, config):
+            by_name.setdefault(tool.name, tool)
+    return list(by_name.values())

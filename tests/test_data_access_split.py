@@ -8,6 +8,7 @@ private methods inside the 1905-line god class.
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -214,6 +215,18 @@ class TestCapabilityBuilders:
 
         result = capability.probe_single("hist_y", lambda: (_ for _ in ()).throw(ValueError("boom")))
         assert not result.ok and result.classification == "unknown_error"
+
+    def test_probe_single_enforces_declared_timeout(self):
+        started = time.monotonic()
+        result = capability.probe_single(
+            "hist_blocked",
+            lambda: time.sleep(1.0),
+            timeout=0.03,
+        )
+
+        assert not result.ok
+        assert result.classification == "timeout"
+        assert time.monotonic() - started < 0.25
 
     def test_probe_cache_roundtrip(self, tmp_path, monkeypatch):
         from datetime import datetime

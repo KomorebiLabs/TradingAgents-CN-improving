@@ -123,6 +123,24 @@ class TestB3Portfolio:
         node = create_constraint_enforcer_node()
         assert node({"final_trade_decision": "加仓至 50%"}) == {}
 
+    def test_enforcer_downgrades_buy_when_numeric_evidence_is_completely_missing(self):
+        from tradingagents.dataflows.config import set_config
+        from tradingagents.graph.setup import create_constraint_enforcer_node
+
+        set_config({"portfolio_context": None})
+        node = create_constraint_enforcer_node()
+        out = node({
+            "final_trade_decision": "Buy\n目标价 2000 元。",
+            "decision_blocks": {"final_trade_decision": "Buy\n目标价 2000 元。"},
+            "verification": {"claims_total": 5, "verified": 0, "unverified": 5},
+            "orchestration": {},
+        })
+
+        assert "INSUFFICIENT_EVIDENCE" in out["final_trade_decision"]
+        assert "Hold" in out["final_trade_decision"]
+        assert out["orchestration"]["decision_quality"]["evidence_coverage"] == 0.0
+        assert out["orchestration"]["decision_quality"]["confidence"] <= 35
+
 
 # ── B2: PIT reasoning constraints ─────────────────────────────────────────
 
