@@ -112,9 +112,11 @@ class NameResolver:
                 data = _json.load(f)
             names: Dict[str, str] = data.get("names", {})
 
-            # Strict validation: at least 3 real Chinese names must exist
+            # A three-row cache can be syntactically valid yet useless for a
+            # real universe. Reject tiny partial caches so missing tickers get
+            # another chance through the configured snapshot/provider chain.
             valid_count = sum(1 for n in names.values() if _is_valid_chinese_name(n))
-            if valid_count < 3:
+            if valid_count < 100:
                 self._warnings.append(
                     f"Cache {cache_file.name} has only {valid_count} valid names; "
                     "invalidating and re-fetching."
@@ -148,11 +150,40 @@ class NameResolver:
         Fetches all A-share stocks (SH, SZ, BJ, KCB) in one call.
         Falls back to CSI index constituents if the primary API fails.
         """
-        self._warnings.clear()
         self._cache.clear()
 
         fetched = 0
         errors: List[str] = []
+
+        # Prefer the already configured Screener data-access chain.  This
+        # keeps name resolution available when AkShare is intentionally an
+        # optional dependency or its code-name endpoint is unavailable.
+        if self._da is not None and hasattr(self._da, "fetch_spot_snapshot"):
+            try:
+                snapshot = self._da.fetch_spot_snapshot()
+                if snapshot is not None and not snapshot.empty:
+                    code_col = next(
+                        (col for col in ("代码", "code", "symbol", "股票代码") if col in snapshot.columns),
+                        None,
+                    )
+                    name_col = next(
+                        (col for col in ("名称", "name", "股票名称") if col in snapshot.columns),
+                        None,
+                    )
+                    if code_col and name_col:
+                        for _, row in snapshot.iterrows():
+                            code = str(row.get(code_col, "")).strip().split(".")[0]
+                            name = str(row.get(name_col, "")).strip()
+                            if code.isdigit() and _is_valid_chinese_name(name):
+                                self._cache[code.zfill(6)] = name
+                                fetched += 1
+            except Exception as e:
+                errors.append(f"spot_snapshot: {e}")
+
+        if self._cache:
+            self._source = "spot_snapshot"
+            self._save_to_cache()
+            return
 
         if _ak is None:
             self._warnings.append("akshare_not_available")

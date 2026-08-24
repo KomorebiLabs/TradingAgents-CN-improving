@@ -605,7 +605,14 @@ class ScreenerDataAccess:
             DataFrame with columns: 日期, 指数代码, 成分券代码, 成分券名称, 权重, 交易所, ...
             空结果返回 None
         """
-        return vendors.sina.fetch_index_cons_weight(self._http(), index_code)
+        http = self._http()
+        result = vendors.sina.fetch_index_cons_weight(http, index_code)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+        result = vendors.sina.fetch_index_cons_sina(http, index_code)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+        return None
 
     def fetch_tick_data(self, symbol: str) -> Any:
         """获取分笔成交明细.

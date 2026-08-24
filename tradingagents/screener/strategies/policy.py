@@ -981,7 +981,7 @@ class PolicyStrategy:
             confidence_tier = "low"
         elif keyword_mode:
             linkage_mode = "keyword_fallback_mapping"
-            confidence_tier = "medium"
+            confidence_tier = "low"
         elif concept_constituent_count <= 0:
             linkage_mode = "concept_without_constituents"
             confidence_tier = "low"

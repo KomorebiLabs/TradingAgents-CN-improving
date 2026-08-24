@@ -20,6 +20,7 @@ __all__ = [
     "fetch_lhb_ggtj",
     "fetch_lhb_jgzz",
     "fetch_index_cons_weight",
+    "fetch_index_cons_sina",
 ]
 
 
@@ -129,3 +130,13 @@ def fetch_index_cons_weight(http: VendorHttp, index_code: str):
     http.sleep_for_vendor("sina")
     with http.spoof():
         return ak.index_stock_cons_weight_csindex(symbol=index_code)
+
+
+@vendor_call("sina.fetch_index_cons_sina")
+def fetch_index_cons_sina(http: VendorHttp, index_code: str):
+    """Fallback constituent list that does not depend on CSI Excel payloads."""
+    import akshare as ak
+
+    http.sleep_for_vendor("sina")
+    with http.spoof():
+        return ak.index_stock_cons_sina(symbol=index_code)
