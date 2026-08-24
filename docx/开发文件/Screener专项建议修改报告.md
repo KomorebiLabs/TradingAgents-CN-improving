@@ -1188,6 +1188,18 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 
 仍然保留一项外部数据边界：仓库当前没有可靠的历史指数成分股快照，因此“切换为 point-in-time universe”不能在本批真实完成。系统继续将 `point_in_time_universe=false` 和 `survivorship_bias=true` 写入 artifact，禁止把当前成分股冒充历史成分股。该项需等后续接入带历史成分股日期的数据源后再关闭。
 
+### 11.19 第 6 批阶段一真实验收记录（2026-08-24）
+
+- [x] CUSTOM 三股票、`--no-deep` 真实运行：交易日 `2026-08-21`，股票 `600519/000001/300750`；Stage A `3/3`，三策略各 3 张卡，Merger 明确淘汰 3 只，最终 `NO_CANDIDATE_VALID`，没有把零候选误报为流水线失败或正式推荐；
+- [x] 供应商健康产物真实生成：探测 `12/18` 可用；腾讯行情、同花顺概念/行业/资金流主路径成功，新浪概念/龙虎榜、东方财富资金流、BaoStock、yfinance 等辅助路径按实际失败记录；
+- [x] Agnes 最小真实调用成功，provider 为 `agnes`，模型为 `agnes-2.5-flash`；随后对 `600519` 执行完整图并通过 checkpoint 恢复完成，生成 7 份主要报告和 verification summary，最终组合决策为 `UNDERWEIGHT`；
+- [x] 巨潮官方公告真实返回 6 条，新闻返回 8 条；财务三表主路径失败后，后备路径返回年度和季度证据；没有把 unavailable 文本当作财务数字；
+- [x] 对本轮 Screener 与 Analyzer 产物扫描 `.env` 中 Key/Token 实值，匹配数为 0；请求产物确认 `llm_provider=agnes` 且 deep/quick 模型均为 `agnes-2.5-flash`；
+- [x] 修复 Windows GBK 终端 Rich Unicode 输出崩溃：统一 CLI 入口在非 UTF-8 流上预先切换 UTF-8；
+- [x] 修复 `analyze --no-interactive/--resume` 完成后仍询问是否展示完整报告、导致无 stdin 环境退出码 1 的问题；交互模式默认行为保持不变。
+
+本阶段暂不扩大到 FOCUSED/MVP：当前探测仍有 6 个辅助接口失败，且历史探测存在日期格式告警和乱码告警。根据真实运行阶梯原则，应先修复探测日期契约、告警编码以及辅助供应商兼容性，再扩大股票池。连续 5 个交易日验收也尚未完成，因此第 6 批不能标记为全部完成。
+
 ## 十二、结论
 
 Screener 当前最值得保留的是工程结构和可审计性，最需要补强的是数据可信度门禁与策略有效性验证。继续增加更多评分规则或更多 LLM 分析，并不能替代这两项工作。
