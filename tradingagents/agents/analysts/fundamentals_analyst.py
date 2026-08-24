@@ -394,6 +394,13 @@ def create_fundamentals_analyst(llm):
         # 如果为空，说明 LLM 没有调用工具，直接用回复内容作为报告
         if len(result.tool_calls) == 0:
             report = result.content
+            from tradingagents.agents.utils.financial_metrics import (
+                build_financial_ratio_evidence,
+            )
+
+            ratio_evidence = build_financial_ratio_evidence(state["messages"])
+            if ratio_evidence:
+                report = f"{report.rstrip()}\n\n{ratio_evidence}"
 
         # ─────────────────────────────────────────────────────────────────
         # 第九步：返回更新后的状态

@@ -200,6 +200,7 @@ class SmartMoneyStrategy:
                 risk_constraint_score=risk_constraint_score,
                 institutional_score=institutional_score,
                 heat_quality_gap_score=heat_quality_gap_score,
+                fund_flow_verified=fund_flow_verified,
             )
             capital_quality_band = self._build_capital_quality_band(
                 capital_quality_tag=capital_quality_tag,
@@ -780,7 +781,10 @@ class SmartMoneyStrategy:
         risk_constraint_score: float,
         institutional_score: float,
         heat_quality_gap_score: float,
+        fund_flow_verified: bool = True,
     ) -> str:
+        if not fund_flow_verified:
+            return "capital_quality_unverified"
         if (
             tick_score >= 68
             and multi_day_persistence_score >= 68
@@ -812,6 +816,8 @@ class SmartMoneyStrategy:
             return "capital_band_persistent"
         if capital_quality_tag == "capital_quality_speculative":
             return "capital_band_speculative"
+        if capital_quality_tag == "capital_quality_unverified":
+            return "capital_band_unverified"
         if risk_constraint_score <= 45 or continuity_score <= 48:
             return "capital_band_fragile"
         return "capital_band_mixed"
@@ -836,6 +842,8 @@ class SmartMoneyStrategy:
             if heat_quality_gap_score >= 28:
                 penalty -= 1.5
             return penalty
+        if capital_quality_tag == "capital_quality_unverified":
+            return -1.0
         return 0.0
 
     @staticmethod
@@ -863,6 +871,8 @@ class SmartMoneyStrategy:
                 f"| continuity={continuity_score} | institutional={institutional_score} "
                 f"| heat_gap={heat_quality_gap_score}"
             )
+        if capital_quality_tag == "capital_quality_unverified":
+            return "capital quality unavailable | verified fund-flow evidence missing"
         return (
             f"mixed capital quality | risk={risk_constraint_score} "
             f"| continuity={continuity_score} | institutional={institutional_score} "

@@ -14,11 +14,28 @@ class TokenCountingCallback(BaseCallbackHandler):
     def on_llm_end(self, response, **kwargs) -> None:
         usage = None
 
-        # Path 1: response.llm_output (legacy LangChain)
-        if hasattr(response, "llm_output") and response.llm_output:
+        # Chat models expose provider-normalized usage on the generated
+        # AIMessage, not on LLMResult itself. This is the path used by Agnes
+        # through langchain-openai.
+        for generation_list in getattr(response, "generations", []) or []:
+            for generation in generation_list or []:
+                message = getattr(generation, "message", None)
+                meta = getattr(message, "usage_metadata", None)
+                if meta:
+                    usage = meta
+                    break
+            if usage is not None:
+                break
+
+        # Legacy/provider-specific LangChain metadata.
+        if usage is None and hasattr(response, "llm_output") and response.llm_output:
             llm_output = response.llm_output
             if isinstance(llm_output, dict):
-                usage = llm_output.get("usage") or llm_output
+                usage = (
+                    llm_output.get("token_usage")
+                    or llm_output.get("usage")
+                    or llm_output
+                )
             else:
                 usage = llm_output
 

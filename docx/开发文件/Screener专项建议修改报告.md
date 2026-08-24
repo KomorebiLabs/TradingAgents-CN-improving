@@ -1269,11 +1269,11 @@ Screener 真实运行：
 
 **第二批：修复结果质量与 Screener 资格判断**
 
-- [ ] 财务比率改为代码计算并附公式证据；
-- [ ] 恢复不同代理的真实立场差异；
-- [ ] 校准 `speculative_flow_dominant` 和 Policy 关键词降级；
-- [ ] 修复 Proxy 公司名称和指数成分响应校验；
-- [ ] 使用合法候选完成 Screener DeepAnalyzer 的 Agnes 真实验收。
+- [x] 财务比率改为代码计算并附公式证据；
+- [x] 恢复不同代理的真实立场差异（第一批真实复跑已确认角色输出不再逐字复制，本批继续通过确定性证据输入提高立场依据质量）；
+- [x] 校准 `speculative_flow_dominant` 和 Policy 关键词降级；
+- [x] 修复 Proxy 公司名称和指数成分响应校验；
+- [x] 使用合法候选夹具完成 Screener DeepAnalyzer 的 Agnes 真实验收。
 
 **第三批：供应商和可观测性收尾**
 
@@ -1328,6 +1328,58 @@ Screener 真实运行：
 - 代理角色输出已经恢复差异，不再出现旧基线中研究、交易、风险节点逐字复制同一 `BUY` 的情况；
 - 项目仍不能称为生产级推荐系统：`0/13` 数字证据验证、财务口径和 310K 输入 Token 均须在第二批继续处理；
 - 离线全量回归：`657 passed, 1 warning`，warning 为第三方弃用提示。
+
+### 11.22 第二批修复与 DeepAnalyzer 真实验收记录（2026-08-24）
+
+#### 11.22.1 推荐质量与财务口径
+
+1. 新增确定性财务比率计算器，只从 ToolMessage 中带有明确指标名、财报期间和人民币单位的证据提取原始值。
+2. `OCF / Revenue`、毛利率和净利率均由程序计算，并输出分子、分母、公式、期间和单位；不同期间的数据禁止混算。
+3. 基本面 Analyst 只能把上述程序计算块附加到最终报告，不能再由 LLM 将 `OCF / Net Income` 误写成 `OCF / Revenue`。
+4. 若三表工具没有返回同期间的必要原始值，则不生成比率，而不是使用估算值补齐。
+
+#### 11.22.2 SmartMoney 与 Policy 标签校准
+
+1. `fund_flow_verified=false` 时，资本质量标签改为 `capital_quality_unverified`，对应 band 为 `capital_band_unverified`，仅施加轻微不确定性折扣。
+2. 缺失资金流证据不再自动触发 `capital_quality_speculative` 或 `speculative_flow_dominant`；只有真实已验证数据满足投机阈值时才能使用投机标签。
+3. Policy 的关键词映射继续可作为召回线索，但 `keyword_fallback_mapping` 的置信度从 `medium` 降为 `low`，不能伪装为真实概念成分关系。
+
+#### 11.22.3 名称与指数数据
+
+1. NameResolver 优先复用 ScreenerDataAccess 的统一行情快照，并兼容 `代码/code/symbol/股票代码` 与 `名称/name/股票名称` 字段。
+2. 只有至少 100 个有效中文名称的缓存才视为可用；过去仅有 3 个名称的局部缓存会被判定为不完整并重新请求，避免目标股票继续显示 `Proxy XXXXXX`。
+3. 中证指数 Excel 权重接口失败或返回空结果时，自动降级到 `index_stock_cons_sina` 成分列表，避免错误页或格式漂移直接终止股票池构建。
+4. 真实探测结果：沪深 300 返回 300 行成分数据；名称缓存成功解析 `600519/000001/300750` 为真实公司名称。终端中文显示仍受当前 Windows 编码影响，归第三批统一处理。
+
+#### 11.22.4 DeepAnalyzer Agnes 真实验收
+
+本次使用固定、可审计的合法候选卡验证执行契约。候选卡明确设置：
+
+- `recommendation_eligible=true`；
+- Technical、Policy、SmartMoney 三模块均为 verified；
+- `verified_strategy_count=3`；
+- `missing_required_modules=[]`、`degraded_modules=[]`；
+- `evidence_snapshot.fixture=true`，明确声明它是契约验收夹具，不是当天真实选股结果。
+
+真实运行结果：
+
+- provider/model：Agnes / `agnes-2.5-flash`；
+- 标的/日期：`600519` / `2026-08-21`；
+- `success=true`；
+- `execution_status=GRAPH_COMPLETED`；
+- `analysis_mode=graph`；
+- `fallback_used=false`；
+- 最终决策：`HOLD`；
+- 耗时：585.43 秒。
+
+首次完整 DeepAnalyzer 验收同时发现成本回调错误：LangChain 将 Agnes usage 放在 `LLMResult.generations[*].message.usage_metadata`，旧回调只读取 `LLMResult` 顶层，因此完整运行错误显示 0 Token。修复后使用最小真实 Agnes 请求验证，成功统计 `input_tokens=289`、`output_tokens=17`。因此 DeepAnalyzer 的图执行与成本回调契约均已真实验证，但 585 秒完整运行的历史 Token 数无法事后恢复，报告不伪造该数字。
+
+#### 11.22.5 本批残留问题
+
+- 财务三表真实供应商仍出现 unavailable，确定性比率模块会正确拒绝计算，但供应商可用性仍需第三批处理；
+- 真实运行发现 VWMA 输入存在 `NoneType / float`，需增加指标输入完整性守卫；
+- 新闻空结果、东方财富 ProxyError 和内幕交易不可用仍通过降级链暴露，属于第三批供应商兼容和健康状态范围；
+- Windows 终端的中文 mojibake 尚未修复，JSON/Markdown 产物需在第三批继续做编码验收。
 
 ## 十二、结论
 
