@@ -264,7 +264,12 @@ class ScreenerEngine:
         data_access = self._build_data_access()
         capability_summary = data_access.validate_interface_assumptions(trade_date=trade_date)
         try:
-            universe = build_screening_universe(mode=mode, config=self.config)
+            universe = build_screening_universe(
+                mode=mode,
+                config=self.config,
+                data_access=data_access,
+                trade_date=trade_date,
+            )
         except RuntimeError as e:
             raise RuntimeError(
                 f"Universe construction failed: {e}\n"
@@ -339,6 +344,13 @@ class ScreenerEngine:
             console.print("[yellow]  DeepAnalysis skipped (no candidates)[/yellow]")
 
         completed_at = datetime.now()
+
+        # Refresh the per-run reliability snapshot after universe and strategies
+        # have finished; the initial probe snapshot is not the final run state.
+        capability_summary["vendor_health"] = data_access.get_vendor_health_snapshot()
+        capability_summary["cache_stats"] = data_access.get_cache_stats()
+        if hasattr(data_access, "requester"):
+            capability_summary["request_stats"] = data_access.requester.get_stats()
 
         # P5-3: Stage A audit info
         stagea_audit = {
@@ -450,6 +462,10 @@ class ScreenerEngine:
         result.metrics["name_resolver_source"] = resolver.source
         result.metrics["name_resolver_warnings"] = resolver.warnings
 
+        capability_summary["vendor_health"] = data_access.get_vendor_health_snapshot()
+        capability_summary["cache_stats"] = data_access.get_cache_stats()
+        if hasattr(data_access, "requester"):
+            capability_summary["request_stats"] = data_access.requester.get_stats()
         result.metrics["capability_summary"] = capability_summary
         result.metrics["universe_summary"] = universe.metadata
         result.metrics["dropped_candidates_count"] = len(dropped_candidates)

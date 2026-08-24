@@ -1132,6 +1132,21 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 
 严格边界：当前策略尚未普遍提供按股票、按目标交易日验证的 `freshness` 记录，因此真实运行生成的卡片可以作为 research 候选，但在补齐来源级日期前不会获得正式推荐资格。接口 probe 成功不能替代目标日期证据，本批没有用 probe 时间伪造业务数据日期。
 
+### 11.15 第 3 批实施记录（2026-08-24）
+
+本批已完成“股票池缓存、单一数据访问实例与供应商健康产物”闭环：
+
+- [x] Universe 缓存升级为 schema v2，写入 `trade_date/as_of/source_signature/built_at/expires_at`；读取时校验 schema、目标日期、来源签名和 TTL；
+- [x] 损坏 JSON、旧 schema、日期变化、配置来源变化和过期缓存全部失败关闭并触发重建，不再静默冒充当日股票池；
+- [x] `build_screening_universe` 接收并传播目标交易日，标准模式与 FOCUSED 模式使用同一缓存契约；
+- [x] Engine 创建的同一个 `ScreenerDataAccess` 现在同时注入 Universe、Stage A、三策略和 NameResolver，单次运行内共享缓存、健康统计、熔断和请求状态；
+- [x] capability summary 在策略与名称解析完成后刷新，避免最终报告只记录启动 probe、遗漏真实业务调用；
+- [x] Markdown 增加“供应商健康状态”，展示 calls、failures、failure_rate、avg_seconds、last_status 和脱敏后的 last_error；
+- [x] 每次运行独立生成 `vendor_health.json`，并在 artifact 路径映射中登记；主 `screening_result.json` 和 Markdown 同样执行防御性错误脱敏；
+- [x] 新增 6 项直接契约测试；缓存、健康和 DataAccess 相关回归 `58 passed`；全量离线测试 `611 passed, 1 warning`。
+
+严格边界：Universe 缓存失效时不会回退到过期缓存；如果供应商无法重建股票池，标准模式仍会明确失败并提示使用 CUSTOM，而不是把旧股票池标成当日有效。供应商健康统计是单次 run 的运行事实，不代表长期 SLA，长期稳定性仍需第 6 批连续多交易日验收。
+
 ## 十二、结论
 
 Screener 当前最值得保留的是工程结构和可审计性，最需要补强的是数据可信度门禁与策略有效性验证。继续增加更多评分规则或更多 LLM 分析，并不能替代这两项工作。

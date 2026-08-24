@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Set
 import json
@@ -57,19 +57,66 @@ def get_screener_cache_dir(config: Dict[str, Any] | None = None) -> Path:
     raise PermissionError("Unable to create a writable screener cache directory")
 
 
-def load_universe_cache(cache_file: Path) -> UniverseBuildResult | None:
+UNIVERSE_CACHE_SCHEMA_VERSION = 2
+
+
+def load_universe_cache(
+    cache_file: Path,
+    *,
+    trade_date: str | None = None,
+    source_signature: str = "",
+    now: datetime | None = None,
+) -> UniverseBuildResult | None:
     if not cache_file.exists():
         return None
 
-    payload = json.loads(cache_file.read_text(encoding="utf-8"))
+    try:
+        payload = json.loads(cache_file.read_text(encoding="utf-8"))
+        if payload.get("schema_version") != UNIVERSE_CACHE_SCHEMA_VERSION:
+            return None
+        current = now or datetime.now()
+        expires_at = datetime.fromisoformat(payload["expires_at"])
+        if current >= expires_at:
+            return None
+        if trade_date is not None and payload.get("trade_date") != trade_date:
+            return None
+        if source_signature and payload.get("source_signature") != source_signature:
+            return None
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+    metadata = dict(payload.get("metadata", {}))
+    metadata.update(
+        {
+            "cache_status": "fresh",
+            "cache_schema_version": payload["schema_version"],
+            "cache_as_of": payload.get("as_of"),
+            "cache_expires_at": payload["expires_at"],
+        }
+    )
     return UniverseBuildResult(
         tickers=list(payload.get("tickers", [])),
-        metadata=dict(payload.get("metadata", {})),
+        metadata=metadata,
     )
 
 
-def save_universe_cache(cache_file: Path, result: UniverseBuildResult) -> None:
+def save_universe_cache(
+    cache_file: Path,
+    result: UniverseBuildResult,
+    *,
+    trade_date: str | None = None,
+    source_signature: str = "",
+    ttl_hours: float = 24,
+    now: datetime | None = None,
+) -> None:
+    built_at = now or datetime.now()
     payload = {
+        "schema_version": UNIVERSE_CACHE_SCHEMA_VERSION,
+        "trade_date": trade_date,
+        "as_of": trade_date or built_at.date().isoformat(),
+        "source_signature": source_signature,
+        "built_at": built_at.isoformat(),
+        "expires_at": (built_at + timedelta(hours=max(float(ttl_hours), 0))).isoformat(),
         "tickers": result.tickers,
         "metadata": result.metadata,
     }
@@ -171,6 +218,7 @@ def build_screening_universe(
     mode: str = "MVP",
     config: Dict[str, Any] | None = None,
     data_access: "ScreenerDataAccess | None" = None,
+    trade_date: str | None = None,
 ) -> UniverseBuildResult:
     """构建筛选股票池。
 
@@ -226,13 +274,22 @@ def build_screening_universe(
             focus_value=focus_value,
             config=config,
             data_access=data_access,
+            trade_date=trade_date,
         )
 
     # Standard profiles (MVP / EXTENDED / EXPERIMENTAL / FULL): fetch index constituents
     universe_def = _get_universe_definition(profile)
     cache_key = f"{profile.lower()}_constituents"
     cache_file = cache_dir / f"universe_{cache_key}.json"
-    cached = load_universe_cache(cache_file)
+    source_signature = universe_def.get(
+        "source_signature", f"csindex:{','.join(universe_def.get('index_codes', []))}"
+    )
+    cache_ttl_hours = float(universe_config.get("cache_ttl_hours", 24))
+    cached = load_universe_cache(
+        cache_file,
+        trade_date=trade_date,
+        source_signature=source_signature,
+    )
     if cached is not None:
         console.print(f"[green][OK] Universe ready (cached)[/green]  [cyan]{len(cached.tickers)}[/cyan] tickers  [dim]profile={profile}[/dim]")
         return cached
@@ -274,7 +331,13 @@ def build_screening_universe(
             "universe_mode": mode,
         },
     )
-    save_universe_cache(cache_file, result)
+    save_universe_cache(
+        cache_file,
+        result,
+        trade_date=trade_date,
+        source_signature=source_signature,
+        ttl_hours=cache_ttl_hours,
+    )
     console.print(f"[green][OK] Universe ready[/green]  [cyan]{len(result.tickers)}[/cyan] stocks  [dim]cached to {cache_file.name}[/dim]")
     return result
 
@@ -297,6 +360,7 @@ def _build_focused_universe(
     focus_value: str | None,
     config: Dict[str, Any],
     data_access: "ScreenerDataAccess | None" = None,
+    trade_date: str | None = None,
 ) -> UniverseBuildResult:
     """Build universe for FOCUSED mode.
 
@@ -311,11 +375,15 @@ def _build_focused_universe(
     constituents: List[str] = []
     source_info = ""
     cache_key = f"focused_{focus_type}_{focus_value.lower()}"
+    source_signature = f"focused:{focus_type}:{focus_value}"
+    cache_ttl_hours = float(config.get("universe", {}).get("cache_ttl_hours", 24))
 
     if focus_type == "index":
         # Focus by index constituents
         cache_file = cache_dir / f"universe_{cache_key}.json"
-        cached = load_universe_cache(cache_file)
+        cached = load_universe_cache(
+            cache_file, trade_date=trade_date, source_signature=source_signature
+        )
         if cached is not None:
             return cached
 
@@ -336,7 +404,9 @@ def _build_focused_universe(
     elif focus_type in ("sector", "theme"):
         # Focus by sector/theme - P5-2: exact match -> alias map -> fail
         cache_file = cache_dir / f"universe_{cache_key}.json"
-        cached = load_universe_cache(cache_file)
+        cached = load_universe_cache(
+            cache_file, trade_date=trade_date, source_signature=source_signature
+        )
         if cached is not None:
             return cached
 
@@ -390,7 +460,13 @@ def _build_focused_universe(
     # Save cache for index/file based focus
     if focus_type in ("index", "file"):
         cache_file = cache_dir / f"universe_{cache_key}.json"
-        save_universe_cache(cache_file, result)
+        save_universe_cache(
+            cache_file,
+            result,
+            trade_date=trade_date,
+            source_signature=source_signature,
+            ttl_hours=cache_ttl_hours,
+        )
 
     return result
 
