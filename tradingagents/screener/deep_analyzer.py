@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -33,47 +34,54 @@ class DeepAnalyzer:
             retry_on_failure=deep_config.get("retry_on_failure", True),
             max_retries=deep_config.get("max_retries", 1),
         )
+        self.config_warnings: List[str] = []
         # H3 FIX: extract enable_real_deep_analysis from config (with env var fallback)
         self._enable_real_analysis = self._resolve_real_analysis_flag()
 
         # H3 可观测性：初始化 CostTracker 和 TokenCountingCallback
-        from tradingagents.harness import CostTracker, TokenCountingCallback
+        from tradingagents.harness.engine import CostTracker, TokenCountingCallback
         self._token_tracker = CostTracker()
         self._token_callback = TokenCountingCallback(self._token_tracker)
 
     def _resolve_real_analysis_flag(self) -> bool:
-        """H3 FIX: resolve real analysis flag with priority: config > env var > default True."""
+        """Resolve nested explicit config, legacy config, env, then default."""
         import os
-        # 1. Config override (highest priority)
+        deep_config = self.config.get("deep_analyzer", {})
+        if "enable_real_deep_analysis" in deep_config:
+            return bool(deep_config["enable_real_deep_analysis"])
         if "enable_real_deep_analysis" in self.config:
+            self.config_warnings.append(
+                "[DEPRECATED] 顶层 enable_real_deep_analysis 已废弃，请迁移到 deep_analyzer.enable_real_deep_analysis"
+            )
             return bool(self.config["enable_real_deep_analysis"])
-        # 2. Environment variable (convenient for deployment)
         env_val = os.environ.get("TRADINGAGENTS_DEEP_ANALYSIS_ENABLED", "").strip().lower()
         if env_val in ("true", "1", "yes"):
             return True
         if env_val in ("false", "0", "no"):
             return False
-        # 3. Default to True (Stage 2 should run real analysis by default)
         return True
 
     def analyze(self, signal_card: SignalCard, trade_date: str) -> DeepAnalysisResult:
         started = datetime.now()
-        semantic_context = self._build_semantic_context(signal_card)
-        route_decision = self._build_route_decision(signal_card, semantic_context)
-        execution_profile = build_semantic_execution_profile(
-            {
-                "semantic_prompt_slots": semantic_context["prompt_slots"],
-                "route_decision": route_decision,
-                "orchestration": {
-                    "semantic_trigger_audit": extract_semantic_trigger_audit(
-                        route_decision=route_decision,
-                        semantic_prompt_slots=semantic_context["prompt_slots"],
-                        applied_controls=route_decision.get("semantic_flow_controls", {}),
-                    )
+        try:
+            semantic_context = self._build_semantic_context(signal_card)
+            route_decision = self._build_route_decision(signal_card, semantic_context)
+            execution_profile = build_semantic_execution_profile(
+                {
+                    "semantic_prompt_slots": semantic_context["prompt_slots"],
+                    "route_decision": route_decision,
+                    "orchestration": {
+                        "semantic_trigger_audit": extract_semantic_trigger_audit(
+                            route_decision=route_decision,
+                            semantic_prompt_slots=semantic_context["prompt_slots"],
+                            applied_controls=route_decision.get("semantic_flow_controls", {}),
+                        )
+                    },
                 },
-            },
-            "portfolio_manager",
-        )
+                "portfolio_manager",
+            )
+        except Exception as exc:
+            return self._failed_result(signal_card, started, str(exc))
         if not self._enable_real_analysis:
             return self._dry_run(
                 signal_card,
@@ -114,6 +122,7 @@ class DeepAnalyzer:
             return DeepAnalysisResult(
                 signal_card=signal_card,
                 success=True,
+                execution_status="GRAPH_COMPLETED",
                 final_decision=decision,
                 elapsed_seconds=elapsed,
                 token_usage={
@@ -123,6 +132,7 @@ class DeepAnalyzer:
                 },
                 final_state_summary={
                     "analysis_mode": "graph",
+                    "config_warnings": list(self.config_warnings),
                     "route_decision": route_decision,
                     "fallback_used": False,
                     "fallback_reason": "",
@@ -138,16 +148,23 @@ class DeepAnalyzer:
                 },
             )
         except Exception as exc:
-            return self._dry_run(
-                signal_card,
-                trade_date,
-                started,
-                reason=str(exc),
-                semantic_context=semantic_context,
-                route_decision=route_decision,
-                execution_profile=execution_profile,
-                fallback_used=True,
-            )
+            try:
+                return self._dry_run(
+                    signal_card,
+                    trade_date,
+                    started,
+                    reason=str(exc),
+                    semantic_context=semantic_context,
+                    route_decision=route_decision,
+                    execution_profile=execution_profile,
+                    fallback_used=True,
+                )
+            except Exception as fallback_exc:
+                return self._failed_result(
+                    signal_card,
+                    started,
+                    f"graph_error={exc}; fallback_error={fallback_exc}",
+                )
 
     def analyze_top_candidates(self, candidates: List[SignalCard], trade_date: str) -> List[DeepAnalysisResult]:
         limit = min(len(candidates), self.deep_config.max_stocks)
@@ -164,7 +181,21 @@ class DeepAnalyzer:
             )
             results.append(self.analyze(card, trade_date))
         console.print()
-        console.print(f"[green][OK] DeepAnalysis done[/green]  [cyan]{len(results)}/{limit}[/cyan] candidates analyzed")
+        status_counts = Counter(result.execution_status for result in results)
+        status_summary = ", ".join(
+            f"{status}={status_counts.get(status, 0)}"
+            for status in (
+                "GRAPH_COMPLETED",
+                "DRY_RUN_REQUESTED",
+                "FALLBACK_COMPLETED",
+                "FAILED",
+            )
+            if status_counts.get(status, 0)
+        )
+        console.print(
+            f"[green][OK] DeepAnalysis done[/green]  "
+            f"[cyan]{len(results)}/{limit}[/cyan] results  [dim]{status_summary}[/dim]"
+        )
         return results
 
     def _dry_run(
@@ -187,6 +218,7 @@ class DeepAnalyzer:
         return DeepAnalysisResult(
             signal_card=signal_card,
             success=True,
+            execution_status="FALLBACK_COMPLETED" if fallback_used else "DRY_RUN_REQUESTED",
             final_decision=decision,
             elapsed_seconds=elapsed,
             token_usage={
@@ -195,7 +227,8 @@ class DeepAnalyzer:
                 "total_tokens": self._token_tracker.total.total_tokens,
             },
             final_state_summary={
-                "analysis_mode": "dry_run",
+                "analysis_mode": "fallback" if fallback_used else "dry_run_requested",
+                "config_warnings": list(self.config_warnings),
                 "reason": reason,
                 "route_decision": route_decision,
                 "fallback_used": fallback_used,
@@ -212,6 +245,26 @@ class DeepAnalyzer:
                     applied_controls=route_decision.get("semantic_flow_controls", {}),
                 ),
                 "semantic_route_audit_trail": [],
+            },
+        )
+
+    def _failed_result(
+        self,
+        signal_card: SignalCard,
+        started: datetime,
+        error: str,
+    ) -> DeepAnalysisResult:
+        return DeepAnalysisResult(
+            signal_card=signal_card,
+            success=False,
+            execution_status="FAILED",
+            elapsed_seconds=(datetime.now() - started).total_seconds(),
+            error=error,
+            final_state_summary={
+                "analysis_mode": "failed",
+                "fallback_used": False,
+                "fallback_reason": "",
+                "config_warnings": list(self.config_warnings),
             },
         )
 

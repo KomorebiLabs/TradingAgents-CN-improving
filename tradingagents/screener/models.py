@@ -94,6 +94,12 @@ class ScreeningResult(BaseModel):
 class DeepAnalysisResult(BaseModel):
     signal_card: SignalCard
     success: bool
+    execution_status: Literal[
+        "GRAPH_COMPLETED",
+        "DRY_RUN_REQUESTED",
+        "FALLBACK_COMPLETED",
+        "FAILED",
+    ] = "FAILED"
     final_decision: Optional[str] = None
     elapsed_seconds: float
     token_usage: Dict[str, int] = Field(

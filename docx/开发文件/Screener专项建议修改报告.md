@@ -1147,6 +1147,21 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 
 严格边界：Universe 缓存失效时不会回退到过期缓存；如果供应商无法重建股票池，标准模式仍会明确失败并提示使用 CUSTOM，而不是把旧股票池标成当日有效。供应商健康统计是单次 run 的运行事实，不代表长期 SLA，长期稳定性仍需第 6 批连续多交易日验收。
 
+### 11.16 第 4 批实施记录（2026-08-24）
+
+本批已完成“DeepAnalyzer 状态枚举与配置统一”闭环：
+
+- [x] 修复 `CostTracker/TokenCountingCallback` 的失效导入路径；此前 DeepAnalyzer 在当前模块结构下无法实例化，真实深度分析会在启动前失败；
+- [x] `DeepAnalysisResult` 新增兼容字段 `execution_status`，统一四态：`GRAPH_COMPLETED`、`DRY_RUN_REQUESTED`、`FALLBACK_COMPLETED`、`FAILED`；
+- [x] 用户主动关闭真实图分析时返回 `DRY_RUN_REQUESTED`，不再与图异常回退共用同一 `dry_run` 状态；
+- [x] 图执行异常但能够形成可消费降级结论时返回 `FALLBACK_COMPLETED`；上下文构建失败或 graph/fallback 双重失败时返回结构化 `FAILED`，并保留错误原因；
+- [x] canonical 配置统一为 `deep_analyzer.enable_real_deep_analysis`，优先级为“嵌套显式配置 > 旧顶层兼容配置 > 环境变量 > 默认值”；旧顶层字段继续可用但写入弃用警告；
+- [x] CLI、JSON 和 Markdown 使用同一个 `execution_status`；CLI 完成摘要分别统计四类状态，不再把 FAILED 统称为 analyzed；
+- [x] Engine 的 `enable_deep_analysis=False` 继续完全跳过 DeepAnalyzer 阶段，CLI `--no-deep` 行为保持不变；
+- [x] 新增 8 项直接测试；全量离线测试 `619 passed, 1 warning`。
+
+兼容边界：旧 `success` 和 `final_state_summary.analysis_mode` 字段继续保留。`success=True` 表示产生了可消费结果，不能再用于判断是否真实执行图；调用方应使用 `execution_status == GRAPH_COMPLETED` 判断真实图成功。主动 dry-run 与 fallback 均可能形成可消费文本，但不会再伪装成 graph completed。
+
 ## 十二、结论
 
 Screener 当前最值得保留的是工程结构和可审计性，最需要补强的是数据可信度门禁与策略有效性验证。继续增加更多评分规则或更多 LLM 分析，并不能替代这两项工作。
