@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DataFreshness(BaseModel):
@@ -38,6 +38,14 @@ class SignalCard(BaseModel):
     screening_score: float
     screening_rank: Optional[int] = None
     data_source_verified: bool = False
+    recommendation_eligible: bool = False
+    verified_modules: List[str] = Field(default_factory=list)
+    missing_required_modules: List[str] = Field(default_factory=list)
+    degraded_modules: List[str] = Field(default_factory=list)
+    verified_strategy_count: int = 0
+    latest_required_data_date: Optional[str] = None
+    max_required_data_lag_days: Optional[int] = None
+    stale_required_sources: List[str] = Field(default_factory=list)
     evidence_snapshot: Dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("initial_confidence", "screening_score")
@@ -62,6 +70,25 @@ class ScreeningResult(BaseModel):
     strategy_status: Dict[str, str] = Field(default_factory=dict)
     data_issues: List[str] = Field(default_factory=list)
     metrics: Dict[str, Any] = Field(default_factory=dict)
+    run_status: Literal[
+        "COMPLETED",
+        "NO_CANDIDATE_VALID",
+        "NO_CANDIDATE_DEGRADED",
+        "PIPELINE_FAILED",
+    ] = "COMPLETED"
+
+    @model_validator(mode="after")
+    def infer_initial_run_status(self):
+        """Make status correct before JSON/Markdown artifacts are rendered."""
+        if self.candidates:
+            self.run_status = "COMPLETED"
+        elif self.metrics.get("pipeline_failed"):
+            self.run_status = "PIPELINE_FAILED"
+        elif any(status != "ready" for status in self.strategy_status.values()):
+            self.run_status = "NO_CANDIDATE_DEGRADED"
+        else:
+            self.run_status = "NO_CANDIDATE_VALID"
+        return self
 
 
 class DeepAnalysisResult(BaseModel):

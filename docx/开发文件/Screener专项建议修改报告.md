@@ -1118,6 +1118,20 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 
 已知降级边界：A 股交易日历优先使用本地缓存，首次缓存缺失时通过 AkShare 获取；供应商不可用时退化到工作日规则，并在日历对象上保留 `source=weekday_fallback` 与 `degraded=True`。后续批次应把该健康状态写入最终运行 artifact，而不只保留在日历组件内部。
 
+### 11.14 第 2 批实施记录（2026-08-24）
+
+本批已完成“数据新鲜度、证据资格与空候选状态”闭环：
+
+- [x] 新增来源级证据资格聚合，`SignalEvidence.freshness` 继续作为唯一来源日期事实；合并卡只保存派生摘要，不创建可独立写入的第二套来源日期；
+- [x] 三策略证据契约明确化：Technical 必需 `hist_fetch/fund_flow`；Policy 必需 `concept_list`、News 可选；Smart Money 必需 `hist_fetch`，资金流、逐笔、估值和龙虎榜为可选增强；
+- [x] 候选新增 `verified_modules`、`missing_required_modules`、`degraded_modules`、`verified_strategy_count`、`recommendation_eligible`；旧 `data_source_verified` 仅保留为兼容摘要；
+- [x] 新鲜度派生新增关键数据最旧日期、最大滞后天数和过期关键来源；Markdown 与 CLI JSON 均展示这些字段；
+- [x] 默认 `research` 模式允许保留研究候选但不会伪装成正式推荐；显式 `recommendation` 模式会阻断缺失或过期必需证据的候选；可选模块降级不会否决已有完整主路径；
+- [x] 空候选细分为 `NO_CANDIDATE_VALID`、`NO_CANDIDATE_DEGRADED` 和 `PIPELINE_FAILED`，只有最后一种产生 FATAL；状态在 `ScreeningResult` 构造时即完成推导，确保 artifact 写入前已经正确；
+- [x] 新增 7 项直接测试，专项及黄金回归 `25 passed`，全量离线测试 `605 passed, 1 warning`。
+
+严格边界：当前策略尚未普遍提供按股票、按目标交易日验证的 `freshness` 记录，因此真实运行生成的卡片可以作为 research 候选，但在补齐来源级日期前不会获得正式推荐资格。接口 probe 成功不能替代目标日期证据，本批没有用 probe 时间伪造业务数据日期。
+
 ## 十二、结论
 
 Screener 当前最值得保留的是工程结构和可审计性，最需要补强的是数据可信度门禁与策略有效性验证。继续增加更多评分规则或更多 LLM 分析，并不能替代这两项工作。
