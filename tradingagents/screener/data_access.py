@@ -452,6 +452,10 @@ class ScreenerDataAccess:
         if result is not None and not getattr(result, "empty", True):
             return result
 
+        result = vendors.misc.fetch_concept_em(http)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+
         return None
 
     def fetch_policy_news_baidu(
@@ -465,15 +469,27 @@ class ScreenerDataAccess:
 
     def fetch_lhb_sina(self, trade_date: str) -> Any:
         """获取龙虎榜明细."""
-        return vendors.sina.fetch_lhb_detail(self._http(), trade_date)
+        http = self._http()
+        result = vendors.sina.fetch_lhb_detail(http, trade_date)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+        return vendors.misc.fetch_lhb_detail_em(http, trade_date)
 
     def fetch_lhb_stats_sina(self, recent_days: str = "5") -> Any:
         """获取龙虎榜个股上榜统计."""
-        return vendors.sina.fetch_lhb_ggtj(self._http(), recent_days)
+        http = self._http()
+        result = vendors.sina.fetch_lhb_ggtj(http, recent_days)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+        return vendors.misc.fetch_lhb_stats_em(http, recent_days)
 
     def fetch_lhb_institutional_stats_sina(self, recent_days: str = "5") -> Any:
         """获取龙虎榜机构席位追踪."""
-        return vendors.sina.fetch_lhb_jgzz(self._http(), recent_days)
+        http = self._http()
+        result = vendors.sina.fetch_lhb_jgzz(http, recent_days)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+        return vendors.misc.fetch_lhb_institutional_em(http, recent_days)
 
     def fetch_concept_constituents(self, concept_name: str) -> Any:
         """获取概念板块成分股, 以 THS HTML scraping > THS API > EastMoney 顺序尝试."""
@@ -621,4 +637,28 @@ class ScreenerDataAccess:
 
     def fetch_vote_baidu(self, symbol: str = "000001") -> Any:
         """获取股票人气投票数据."""
-        return vendors.misc.fetch_vote_baidu(symbol=symbol)
+        result = vendors.misc.fetch_vote_baidu(symbol=symbol)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+        result = vendors.misc.fetch_popularity_em(symbol=symbol)
+        if result is not None and not getattr(result, "empty", True):
+            return result
+
+        frame = self.fetch_fund_flow()
+        if frame is None or getattr(frame, "empty", True):
+            return None
+        code_columns = [
+            col for col in frame.columns
+            if "代码" in str(col) or "code" in str(col).lower()
+        ]
+        if not code_columns:
+            return None
+        normalized = frame[code_columns[0]].astype(str).str.extract(
+            r"(\d{6})", expand=False
+        )
+        matches = frame[normalized.eq(symbol.zfill(6))]
+        if matches.empty:
+            return None
+        frame = matches.copy()
+        frame["source"] = "ths_or_em_fund_flow_proxy"
+        return frame
