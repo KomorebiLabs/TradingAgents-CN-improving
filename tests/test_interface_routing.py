@@ -23,6 +23,7 @@ class TestCategoryLookup:
         assert interface.get_category_for_method("get_stock_data") == "core_stock_apis"
         assert interface.get_category_for_method("get_indicators") == "technical_indicators"
         assert interface.get_category_for_method("get_news") == "news_data"
+        assert interface.get_category_for_method("get_announcements") == "announcement_data"
         assert interface.get_category_for_method("get_cn_macro_data") == "cn_macro_data"
         assert interface.get_category_for_method("get_cn_limit_up_stocks") == "cn_event_data"
 
@@ -41,6 +42,15 @@ class TestVendorNormalization:
     def test_default_priority_uses_canonical_names(self):
         vendors = interface.get_vendor("core_stock_apis").split(",")
         assert vendors[0] == "tencent_finance"
+
+    def test_official_sources_are_defaulted_and_normalized(self, monkeypatch):
+        assert interface.get_vendor("announcement_data") == "cninfo_official"
+        monkeypatch.delenv("TUSHARE_ENABLED", raising=False)
+        assert interface.get_vendor("fundamental_data").split(",")[0] == "ths_data"
+        monkeypatch.setenv("TUSHARE_ENABLED", "true")
+        assert interface.get_vendor("fundamental_data").split(",")[0] == "tushare_pro"
+        assert interface._normalize_vendor_name("cninfo") == "cninfo_official"
+        assert interface._normalize_vendor_name("tushare") == "tushare_pro"
 
     def test_every_registered_vendor_method_has_category(self):
         for method in interface.VENDOR_METHODS:
@@ -110,6 +120,7 @@ class TestStage2FakeSuccessVisibility:
         assert interface._looks_like_unavailable("No fundamentals data found for symbol '600519'")
         assert interface._looks_like_unavailable("Income statement data unavailable for 600519.SH: boom")
         assert interface._looks_like_unavailable("No CN policy-sensitive macro events found around 2026-08-16")
+        assert interface._looks_like_unavailable('{"items": "0", "feed": []}')
         # real content must NOT be flagged
         assert not interface._looks_like_unavailable("# 600519 资产负债表\n\n- 资产: 100")
         assert not interface._looks_like_unavailable("date,open,close\n2026-01-01,10,11")
@@ -134,3 +145,121 @@ class TestStage2FakeSuccessVisibility:
             result = interface.route_to_vendor("get_stock_data", "600519", "2026-01-01", "2026-01-10")
         assert result.startswith("date,open,close")
         assert "placeholder" not in caplog.text
+
+    def test_placeholder_result_falls_back_to_next_vendor(self, monkeypatch):
+        calls = []
+
+        def fake_loader(_module, attr):
+            def fake(*args, **kwargs):
+                calls.append(attr)
+                if attr == "get_akshare_balance_sheet":
+                    return "Balance sheet data unavailable for 600519.SH: upstream returned None"
+                return "# Balance Sheet data for 600519.SH\nDate,Total Assets\n2025-12-31,100"
+
+            return fake
+
+        monkeypatch.setattr(interface, "_load_attr", fake_loader)
+        set_config(
+            {
+                **default_config.DEFAULT_CONFIG,
+                "tool_vendors": {"get_balance_sheet": "ths_data,legacy_yfinance"},
+            }
+        )
+
+        result = interface.route_to_vendor("get_balance_sheet", "600519.SH", "annual", "2026-08-20")
+
+        assert result.startswith("# Balance Sheet data")
+        assert calls == ["get_akshare_balance_sheet", "get_balance_sheet"]
+
+    def test_all_placeholder_results_return_auditable_degraded_message(self, monkeypatch):
+        def fake_loader(_module, attr):
+            def fake(*args, **kwargs):
+                return f"No data available from {attr}"
+
+            return fake
+
+        monkeypatch.setattr(interface, "_load_attr", fake_loader)
+        set_config(
+            {
+                **default_config.DEFAULT_CONFIG,
+                "tool_vendors": {"get_news": "ths_data,legacy_yfinance"},
+            }
+        )
+
+        result = interface.route_to_vendor("get_news", "600519", "2026-08-01", "2026-08-20")
+
+        assert result.startswith("[DATA_UNAVAILABLE]")
+        assert "get_news" in result
+        assert "ths_data" in result
+        assert "legacy_yfinance" in result
+
+    def test_duplicate_vendor_implementations_are_not_retried(self, monkeypatch):
+        calls = []
+
+        def fake_loader(_module, attr):
+            def fake(*args, **kwargs):
+                calls.append(attr)
+                if attr == "get_akshare_news":
+                    return "No news found for 600519"
+                return "No news found from fallback"
+
+            return fake
+
+        monkeypatch.setattr(interface, "_load_attr", fake_loader)
+        set_config(
+            {
+                **default_config.DEFAULT_CONFIG,
+                "tool_vendors": {
+                    "get_news": "ths_data,legacy_akshare,legacy_yfinance"
+                },
+            }
+        )
+
+        interface.route_to_vendor("get_news", "600519", "2026-08-01", "2026-08-20")
+
+        assert calls.count("get_akshare_news") == 1
+
+    def test_empty_news_feed_falls_back_to_next_vendor(self, monkeypatch):
+        calls = []
+
+        def fake_loader(_module, attr):
+            def fake(*args, **kwargs):
+                calls.append(attr)
+                if attr == "get_akshare_news":
+                    return '{"items": "0", "feed": []}'
+                return "# 600519 News\\n2026-08-19: vendor fallback article"
+
+            return fake
+
+        monkeypatch.setattr(interface, "_load_attr", fake_loader)
+        set_config(
+            {
+                **default_config.DEFAULT_CONFIG,
+                "tool_vendors": {"get_news": "ths_data,legacy_yfinance"},
+            }
+        )
+
+        result = interface.route_to_vendor("get_news", "600519", "2026-08-01", "2026-08-20")
+
+        assert "vendor fallback article" in result
+        assert calls == ["get_akshare_news", "get_news_yfinance"]
+
+    def test_official_announcement_route_records_health(self, monkeypatch):
+        from tradingagents.dataflows.vendor_health import TRACKER
+
+        TRACKER.reset()
+        monkeypatch.setattr(
+            interface,
+            "_load_attr",
+            lambda _module, _attr: lambda *args, **kwargs: (
+                "# Official listed-company announcements\n"
+                "# Vendor: cninfo.official\n"
+                "- Annual report"
+            ),
+        )
+        result = interface.route_to_vendor(
+            "get_announcements", "600519", "2026-08-01", "2026-08-20"
+        )
+        assert "cninfo.official" in result
+        assert TRACKER.snapshot()["cninfo_official"]["last_status"] == "ok"
+        TRACKER.reset()

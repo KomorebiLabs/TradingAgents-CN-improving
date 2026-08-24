@@ -179,7 +179,7 @@ def get_user_config() -> dict:
     }
 
 
-def run() -> None:
+def run(hitl: bool = False) -> None:
     """Main entry point for the Analyze CLI.
 
     1. Run 8-step questionnaire
@@ -192,7 +192,7 @@ def run() -> None:
 
     # Import and run the execution engine
     from cli.analyze.run_impl import run_analysis
-    result = run_analysis(config)
+    result = run_analysis(config, hitl=hitl)
 
     # Show summary
     from tradingagents.ui.summary import print_summary

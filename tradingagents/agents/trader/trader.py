@@ -271,6 +271,13 @@ def create_trader(llm, memory, skill_injector=None):
             context["content"] += historical_context_str
 
         # system 消息：定义交易员的角色和输出要求
+        from tradingagents.agents.utils.exchange_rules import (
+            execution_constraint_block, portfolio_prompt_block,
+        )
+        from tradingagents.dataflows.config import get_config
+        _ticker = str(state.get("company_of_interest", ""))
+        _portfolio = get_config().get("portfolio_context")
+
         messages = [
             {
                 "role": "system",
@@ -287,6 +294,8 @@ def create_trader(llm, memory, skill_injector=None):
                             " the exact phrase FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** there."
                             f" Apply this Screener semantic routing guidance: {semantic_instruction}"
                             f" Apply this execution profile: {execution_profile}"
+                        f"{execution_constraint_block(_ticker)}"
+                        f"{portfolio_prompt_block(_portfolio, _ticker)}"
                             f" Apply lessons from past decisions: {past_memory_str}"
                         ),
                         few_shot_examples=TRADER_FEW_SHOTS,

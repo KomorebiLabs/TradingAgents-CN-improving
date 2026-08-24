@@ -281,3 +281,47 @@ class TestLLMRetry:
         with pytest.raises(openai.AuthenticationError):
             llm.invoke("hi")
         assert attempts["n"] == 1  # never retried: retrying config errors burns money
+
+
+class TestRunIdGraphIntegration:
+    """E1 bug fix: fresh runs must pass the SAME run_id to the graph (checkpointer
+    thread) and to the stream (artifacts) — previously the graph got None."""
+
+    def test_fresh_run_passes_run_id_to_graph(self, monkeypatch, tmp_path):
+        from unittest.mock import MagicMock
+
+        from tradingagents.graph.trading_graph import _AnalysisStream
+
+        monkeypatch.setattr(service_module, "_PROJECT_ROOT", tmp_path)
+        graph = MagicMock()
+        graph.debug = False
+        graph._historical_context = None
+        graph.graph_setup.selected_analysts = ["market"]
+        graph.propagator.create_initial_state.return_value = {"messages": []}
+        graph.propagator.get_graph_args.return_value = {"stream_mode": "values", "config": {}}
+
+        def _fake_stream(init_state, **kwargs):
+            yield {"messages": []}
+
+        graph.graph.stream.side_effect = _fake_stream
+        graph._ensure_structured_state.side_effect = lambda s: dict(s)
+        graph.stream_analysis = MagicMock(
+            side_effect=lambda *a, **k: _AnalysisStream(graph, "600519", "2026-08-20")
+        )
+
+        constructor_kwargs = {}
+
+        def _factory():
+            def _ctor(*a, **k):
+                constructor_kwargs.update(k)
+                return graph
+            return _ctor
+
+        service = AnalysisService.__new__(AnalysisService)
+        service._graph_factory = _factory
+        service._debug = False
+        stream = service.stream_events(
+            AnalysisRequest(ticker="600519", trade_date="2026-08-20")
+        )
+        list(stream)
+        assert constructor_kwargs.get("run_id") == stream.run_id  # SAME id both sides

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import tradingagents.application.service as service_module
 from tradingagents.application import AnalysisRequest, AnalysisService
+from tradingagents.application.service import calibrate_compression_threshold
 
 
 def _grep_count(pattern: str) -> int:
@@ -98,6 +99,20 @@ class TestContextStatsInstrumentation:
         assert data["run_id"] == stream.run_id
         phases = data["phases"]
         assert phases == [
-            {"stage": "route_research", "context_estimate": 26400},
-            {"stage": "route_trader", "context_estimate": 31000},
+            {"stage": "route_research", "estimated_chars": 26400, "context_estimate": 26400},
+            {"stage": "route_trader", "estimated_chars": 31000, "context_estimate": 31000},
         ]
+
+    def test_p75_calibration_requires_sample_and_accepts_legacy_field(self, tmp_path):
+        paths = []
+        for index in range(2):
+            path = tmp_path / f"stats-{index}.json"
+            key = "estimated_chars" if index == 0 else "context_estimate"
+            path.write_text(
+                json.dumps({"phases": [{"stage": "x", key: value} for value in range(100, 601, 100)]}),
+                encoding="utf-8",
+            )
+            paths.append(path)
+
+        assert calibrate_compression_threshold(paths, min_samples=10) == 500
+        assert calibrate_compression_threshold(paths[:1], min_samples=10) is None

@@ -377,6 +377,122 @@ def create_debate_convergence_node(llm: Any):
     return convergence_node
 
 
+class HumanGateAbort(Exception):
+    """A5: user chose to abort at the final-decision gate."""
+
+
+def create_human_gate_node():
+    """A5: in-the-loop gate before the Portfolio Manager's final decision.
+
+    Mode "interactive" (config hitl_mode): the node interrupts; the CLI
+    shows trader plan + risk summary + cost context and collects one of
+    proceed / comment / abort. The comment is ADVISORY — it may influence
+    the PM's reasoning weight, but the user has no direct channel to edit
+    numbers (authorship stays clean: AI writes, human annotates).
+    Default mode "auto": no-op, behavior identical to pre-A5.
+    """
+    from langgraph.types import interrupt
+
+    def gate_node(state: AgentState):
+        if get_config().get("hitl_mode", "auto") != "interactive":
+            return {}
+        payload = interrupt({
+            "gate": "final_decision",
+            "trader_plan": str(state.get("trader_investment_plan") or "")[:1500],
+            "risk_tail": str((state.get("risk_debate_state") or {}).get("history") or "")[-800:],
+            "options": {"proceed": "继续", "comment": "追加评语后继续", "abort": "中止"},
+        })
+        action = payload.get("action", "proceed") if isinstance(payload, dict) else "proceed"
+        if action == "abort":
+            raise HumanGateAbort("User aborted at the final-decision gate")
+        update: Dict[str, Any] = {"sender": "Human Gate"}
+        if action == "comment":
+            text = str(payload.get("text") or "")[:2000]
+            if text:
+                update["human_override_comment"] = text
+        return update
+
+    return gate_node
+
+
+def create_constraint_enforcer_node():
+    """B3: programmatic portfolio-constraint enforcement (soft prompt -> hard clamp).
+
+    LLMs under strong conviction ignore soft constraints; the enforcer parses
+    the proposed position weight from the final decision, clamps it to
+    max_single, annotates the report explicitly and records an auditable
+    constraint_override. No portfolio file -> no-op.
+    """
+    from tradingagents.agents.utils.decision_constraints import (
+        enforce_portfolio_constraints,
+    )
+    from tradingagents.agents.utils.exchange_rules import validate_execution_decision
+
+    def enforcer_node(state: AgentState):
+        portfolio = get_config().get("portfolio_context") or {}
+        decision = str(state.get("final_trade_decision") or "")
+        corrected, raw_overrides = (
+            enforce_portfolio_constraints(decision, portfolio)
+            if portfolio else (decision, [])
+        )
+        execution_context = state.get("execution_context") or {}
+        trade_date_close = state.get("trade_date_close")
+        if trade_date_close is None:
+            trade_date_close = execution_context.get("trade_date_close")
+        corrected, execution_warnings = validate_execution_decision(
+            corrected,
+            trade_date_close=trade_date_close,
+            segment=str(execution_context.get("segment") or ""),
+            trade_date=str(state.get("trade_date") or ""),
+        )
+        if not raw_overrides and not execution_warnings:
+            return {}
+
+        notices = []
+        overrides = []
+        for item in raw_overrides:
+            field = item["field"]
+            proposed = item["proposed"]
+            cap = item["cap"]
+            if field == "max_single":
+                notices.append(
+                    "【组合约束修正】原建议仓位 "
+                    f"{proposed:g}%，触发单票上限约束（{cap:g}%），"
+                    f"系统已强制修正为 {cap:g}%。"
+                )
+                overrides.append({
+                    "field": "position_weight",
+                    "proposed": proposed,
+                    "cap": cap,
+                })
+            else:
+                notices.append(
+                    f"【组合约束修正】{field} 原值 {proposed:g}%，系统修正为 {cap:g}%。"
+                )
+                overrides.append(item)
+        new_decision = corrected
+        if notices:
+            new_decision += "\n\n" + "\n".join(notices)
+        if execution_warnings:
+            new_decision += "\n\n【执行规则校验】" + "；".join(
+                warning["message"] for warning in execution_warnings
+            )
+        decision_blocks = dict(state.get("decision_blocks") or {})
+        decision_blocks["final_trade_decision"] = new_decision
+        orchestration = dict(state.get("orchestration") or {})
+        existing_overrides = list(orchestration.get("constraint_overrides") or [])
+        orchestration["constraint_overrides"] = existing_overrides + overrides
+        orchestration["execution_rule_warnings"] = execution_warnings
+        return {
+            "final_trade_decision": new_decision,
+            "decision_blocks": decision_blocks,
+            "orchestration": orchestration,
+            "sender": "ConstraintEnforcer",
+        }
+
+    return enforcer_node
+
+
 def create_risk_finalize_node():
     def finalize_node(state: AgentState):
         orchestration = dict(state.get("orchestration", {}))
@@ -650,6 +766,8 @@ class GraphSetup:
         # chain, before anything downstream consumes the reports.
         from tradingagents.agents.utils.evidence_verifier import run_verification
         workflow.add_node("Evidence Verifier", lambda state: run_verification(state))
+        workflow.add_node("Human Gate", create_human_gate_node())
+        workflow.add_node("ConstraintEnforcer", create_constraint_enforcer_node())
 
         workflow.add_node("Bull Researcher", agents["bull"])
         workflow.add_node("Bear Researcher", agents["bear"])
@@ -737,7 +855,10 @@ class GraphSetup:
                 ORCHESTRATION_ROUTE_TARGETS,
             )
 
-        workflow.add_edge("Finalize Risk Debate", "Route Portfolio Phase")
+        # A5: gate sits after the risk debate, before the final decision —
+        # all analysis cost is spent, the decision is not yet issued.
+        workflow.add_edge("Finalize Risk Debate", "Human Gate")
+        workflow.add_edge("Human Gate", "Route Portfolio Phase")
         workflow.add_edge("Summarize Analyst Phase", "Route Research Phase")
         workflow.add_edge("Summarize Research Phase", "Route Trader Phase")
         workflow.add_edge("Summarize Trader Phase", "Route Risk Phase")
@@ -780,5 +901,7 @@ class GraphSetup:
         )
 
         # 【终点】Portfolio Manager → END（结束）
-        workflow.add_edge("Portfolio Manager", END)
+        # B3: hard clamp after the final decision, before completion.
+        workflow.add_edge("Portfolio Manager", "ConstraintEnforcer")
+        workflow.add_edge("ConstraintEnforcer", END)
 

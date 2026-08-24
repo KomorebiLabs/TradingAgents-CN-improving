@@ -72,7 +72,7 @@ from dateutil.relativedelta import relativedelta
 # 【教学】yf_retry 是 stockstats_utils.py 中定义的重试包装器
 # 原理：当网络请求失败时，自动重试 3 次
 # 作用：提高稳定性，应对临时的网络波动
-from .stockstats_utils import yf_retry
+from .stockstats_utils import normalize_yfinance_symbol, yf_retry
 
 
 # ==============================================================================
@@ -235,7 +235,7 @@ def get_news_yfinance(
         # 【教学】创建 Ticker 对象并获取新闻
         # 注意：yfinance 的 get_news() 只返回最近的新闻
         # 不支持按日期范围过滤，所以在本地做日期过滤
-        stock = yf.Ticker(ticker)
+        stock = yf.Ticker(normalize_yfinance_symbol(ticker))
         news = yf_retry(lambda: stock.get_news(count=20))
 
         if not news:

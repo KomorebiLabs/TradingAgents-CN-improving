@@ -96,6 +96,7 @@ def run_analysis(
     config: dict | AnalysisRequest,
     run_id: str | None = None,
     resume: bool = False,
+    hitl: bool = False,
 ) -> dict:
     """Run the full TradingAgents analysis pipeline (UI adapter).
 
@@ -116,6 +117,10 @@ def run_analysis(
         if isinstance(config, AnalysisRequest)
         else AnalysisRequest.from_questionnaire(config)
     )
+    if hitl:
+        from dataclasses import replace as _dc_replace
+
+        request = _dc_replace(request, hitl_mode="interactive")
 
     stats_handler = StatsCallbackHandler()
     service = AnalysisService()
@@ -185,8 +190,57 @@ def run_analysis(
 
     dashboard.run(events_with_dashboard(), stats_callback=stats_handler)
 
-    assert stream.result is not None, "event stream exhausted without a result"
-    result = stream.result.to_dict()
+    # A5: if the run paused at the HumanGate interrupt, collect the gate
+    # decision (proceed / comment / abort) and continue the SAME checkpointed
+    # thread — completed nodes are not re-executed, no re-billing.
+    active_result_stream = stream
+    inner = getattr(stream, "_inner", None)
+    if inner is not None and getattr(inner, "paused", False):
+        from rich.prompt import Prompt as _RP
+
+        console.print(Panel(
+            "[bold]人工确认关口（HumanGate）[/bold]\n\n"
+            "[dim]交易员计划（截选）：[/dim]\n"
+            + str((inner.final_state or {}).get("trader_investment_plan") or "")[:600],
+            title="Final Decision Gate",
+            border_style="yellow",
+        ))
+        choice = _RP.ask(
+            "继续 / 追加评语后继续 / 中止 [proceed/comment/abort]",
+            choices=["proceed", "comment", "abort"],
+            default="proceed",
+        )
+        payload = {"action": choice}
+        if choice == "comment":
+            payload["text"] = _RP.ask("评语（将作为顾问性输入注入最终决策）")
+        if choice == "abort":
+            stream.mark_abandoned(reason="human_gate_abort", choice="abort")
+            console.print("[yellow]已中止：已完成阶段的成本已消耗，本次不产生最终决策。[/yellow]")
+            aborted = stream.result.to_dict() if stream.result is not None else {
+                "ticker": request.ticker,
+                "decision": "ABORTED",
+                "run_id": stream.run_id,
+                "report_path": stream.report_dir,
+                "final_state": inner.final_state or {},
+            }
+            aborted["decision"] = "ABORTED"
+            return aborted
+        else:
+            resume_stream = AnalysisService().stream_events(
+                request, stats_handler=stats_handler,
+                run_id=stream.run_id, resume=True, resume_payload=payload,
+            )
+
+            def _resume_events():
+                for event in resume_stream:
+                    _apply_event(event, msg_buf, dashboard)
+                    yield event
+
+            dashboard.run(_resume_events(), stats_callback=stats_handler)
+            active_result_stream = resume_stream
+
+    assert active_result_stream.result is not None, "event stream exhausted without a result"
+    result = active_result_stream.result.to_dict()
 
     print_reports_saved(stream.report_dir, request.ticker, request.trade_date)
     return result

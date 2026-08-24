@@ -62,6 +62,21 @@ def get_news(
 
 
 @tool
+def get_announcements(
+    ticker: Annotated[str, "Ticker symbol"],
+    start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
+    end_date: Annotated[str, "End date in yyyy-mm-dd format"],
+) -> str:
+    """Retrieve official listed-company disclosure announcements.
+
+    This source is regulatory disclosure metadata from CNINFO, not general
+    media news.  Missing or inaccessible disclosures remain explicit in the
+    returned text so the analyst cannot treat them as verified facts.
+    """
+    return route_to_vendor("get_announcements", ticker, start_date, end_date)
+
+
+@tool
 def get_global_news(
     curr_date: Annotated[str, "Current date in yyyy-mm-dd format"],
     look_back_days: Annotated[int, "Number of days to look back"] = 7,

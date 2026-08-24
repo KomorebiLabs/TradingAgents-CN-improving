@@ -213,6 +213,24 @@ class ChunkEventTranslator:
                     text=f"Evidence verified {verification.get('verified', 0)}/{total} numeric claims"
                 ))
 
+        # B3/A5: constraint overrides and gate comments surface on the timeline
+        orch = chunk.get("orchestration") or {}
+        overrides = orch.get("constraint_overrides")
+        if (
+            isinstance(overrides, list)
+            and overrides
+            and len(overrides) != getattr(self, "_last_override_count", 0)
+        ):
+            self._last_override_count = len(overrides)
+            last = overrides[-1]
+            events.append(TimelineNoted(
+                text=f"ConstraintEnforcer: proposed {last.get('proposed')}% clamped to {last.get('cap')}% (max_single)"
+            ))
+        gate_comment = chunk.get("human_override_comment")
+        if gate_comment and gate_comment != getattr(self, "_last_gate_comment", None):
+            self._last_gate_comment = gate_comment
+            events.append(TimelineNoted(text=f"HumanGate comment: {str(gate_comment)[:80]}"))
+
         events.extend(self._debate_events(chunk))
         events.extend(self._metrics_events())
         return events

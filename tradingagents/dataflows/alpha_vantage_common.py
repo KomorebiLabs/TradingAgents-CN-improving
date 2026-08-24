@@ -109,11 +109,14 @@ Alpha Vantage API 概览：
 """
 
 import os
+import logging
 import requests
 import pandas as pd
 import json
 from datetime import datetime
 from io import StringIO
+
+logger = logging.getLogger(__name__)
 
 # ==============================================================================
 # 第一部分：常量定义
@@ -206,8 +209,8 @@ def format_datetime_for_api(date_input) -> str:
         try:
             dt = datetime.strptime(date_input, "%Y-%m-%d")
             return dt.strftime("%Y%m%dT0000")
-        except ValueError:
-            pass
+        except ValueError as _exc_e3:
+            logger.warning("[E3] alpha_vantage_common.py: previously-silent failure surfaced: %s", _exc_e3)
 
         # 情况 3: "2024-01-15 14:30" 格式
         try:

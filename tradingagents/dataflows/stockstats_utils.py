@@ -12,6 +12,44 @@ from .config import get_config
 logger = logging.getLogger(__name__)
 
 
+def normalize_yfinance_symbol(symbol: str) -> str:
+    """Map project/CN exchange symbols to Yahoo Finance suffixes.
+
+    The application uses ``.SH``/``.SZ`` exchange suffixes, while Yahoo
+    Finance expects Shanghai symbols with ``.SS``.  Without this boundary
+    normalization, the yfinance fallback silently returns empty financial
+    statements for symbols such as ``600519.SH``.
+    """
+    value = str(symbol or "").strip().upper()
+    if not value:
+        return value
+
+    if value.startswith(("SH", "SZ", "SS", "BJ")) and value[2:].isdigit():
+        value = f"{value[2:]}.{value[:2]}"
+
+    if "." in value:
+        code, suffix = value.rsplit(".", 1)
+        suffix_map = {
+            "SH": "SS",
+            "XSHG": "SS",
+            "SZ": "SZ",
+            "XSHE": "SZ",
+            "BJ": "BJ",
+            "BSE": "BJ",
+        }
+        return f"{code}.{suffix_map.get(suffix, suffix)}"
+
+    if value.isdigit():
+        if value.startswith(("6", "9")):
+            return f"{value}.SS"
+        if value.startswith(("0", "2", "3")):
+            return f"{value}.SZ"
+        if value.startswith(("4", "8")):
+            return f"{value}.BJ"
+
+    return value
+
+
 def yf_retry(func, max_retries=5, base_delay=5.0, max_delay=120.0):
     """Execute a yfinance call with exponential backoff on rate limits.
 

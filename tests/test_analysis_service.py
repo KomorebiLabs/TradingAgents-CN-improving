@@ -50,7 +50,12 @@ class TestContracts:
         assert graph_config["deep_think_llm"] == "gpt-big"
         assert graph_config["output_language"] == "Chinese"
 
-    def test_default_for_uses_config_defaults(self):
+    def test_default_for_uses_config_defaults(self, monkeypatch):
+        # The real CLI intentionally allows environment overrides (for
+        # example LLM_PROVIDER=agnes).  This test targets the static fallback
+        # contract, so isolate it from the developer's local .env.
+        for key in ("LLM_PROVIDER", "DEEP_THINK_LLM", "QUICK_THINK_LLM", "BACKEND_URL"):
+            monkeypatch.delenv(key, raising=False)
         request = AnalysisRequest.default_for("000001", "2026-08-16")
         assert request.selected_analysts == tuple(request.analyst_keys())
         assert request.llm_provider == DEFAULT_CONFIG["llm_provider"]
@@ -137,6 +142,7 @@ class TestAnalysisServiceStream:
         assert stream.result.decision == "BUY"
         assert stream.result.ticker == "600519"
         assert stream.result.report_path == stream.report_dir
+        assert (stream.results_dir / "vendor_health.json").exists()
 
     def test_graph_construction_happens_eagerly(self, tmp_path, monkeypatch):
         """A broken configuration must fail in stream_events() — before the
