@@ -1029,7 +1029,7 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 - [x] 增加 commission、stamp duty、slippage 配置；
 - [x] 测试买入、卖出和换仓成本；
 - [x] 测试停牌、涨停买不进、跌停卖不出；
-- [ ] 报告列出实际成交、未成交和延迟成交数量；
+- [x] 报告列出实际成交、未成交和延迟成交数量；
 - [x] 将 turnover 纳入绩效指标。
 
 #### 任务 5.3：增加 point-in-time 约束和样本外验证
@@ -1037,7 +1037,7 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 - [x] 回测 artifact 固定 config version、threshold snapshot、数据源和股票池 as_of；
 - [x] 当前成分股回测继续显著标记 survivorship bias；
 - [ ] 有历史成分股数据后切换为 point-in-time universe；
-- [ ] 划分训练、验证、测试窗口，阈值只能在验证集选择；
+- [x] 划分训练、验证、测试窗口，阈值只能在验证集选择；
 - [x] 在历史快照不足前，不伪造 Policy/SmartMoney 全历史回测。
 
 ### 11.10 第 6 批：综合验证
@@ -1174,6 +1174,19 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 - [x] 明确当前股票池来自当前抓取而非历史成分股快照，持续标记 survivorship bias；没有伪造 Policy/SmartMoney 历史回测。
 
 专项回归为 `17 passed`。尚未完成的第 5 批内容是：延迟成交队列、真实 OHLCV 接入后的默认停牌校验、训练/验证/测试窗口及阈值仅在验证集选择。这些项目应作为第 5 批阶段二继续实施，不能因 artifact 已升级而视为整个第 5 批完成。
+
+### 11.18 第 5 批阶段二实施记录（2026-08-24）
+
+本阶段补齐第 5 批剩余的可实现项：
+
+- [x] 涨停、跌停或停牌导致的未成交目标会进入下一交易日重试；执行日志记录首次计划日、每次尝试日、状态和延迟交易日数；
+- [x] 新增统一 `MarketData` OHLCV 契约；回测引擎默认从同一次历史数据抓取中取得 close 与 volume，停牌校验不再依赖外部手工注入；旧 `fetch_close_prices` 返回类型保持兼容；
+- [x] `BacktestConfig` 支持 `train_end/validation_end` 且严格校验时间顺序；报告和 artifact 分别记录 train、validation、test 绩效；
+- [x] 敏感性扫描缺少 validation 指标时失败关闭；每个参数只能依据 validation Sharpe 标记最优候选，test 指标仅用于最终样本外观察；
+- [x] CLI 增加 `--train-end` 和 `--validation-end`，使样本切分能够被显式配置和复现；
+- [x] Markdown 报告展示实际成交、未成交尝试、延迟成交、总换手、成本和样本切分绩效；JSON artifact 同步保存 split performance。
+
+仍然保留一项外部数据边界：仓库当前没有可靠的历史指数成分股快照，因此“切换为 point-in-time universe”不能在本批真实完成。系统继续将 `point_in_time_universe=false` 和 `survivorship_bias=true` 写入 artifact，禁止把当前成分股冒充历史成分股。该项需等后续接入带历史成分股日期的数据源后再关闭。
 
 ## 十二、结论
 

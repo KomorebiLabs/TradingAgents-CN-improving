@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 from tradingagents.backtest.engine import BacktestConfig, BacktestEngine, build_pool
 from tradingagents.screener.data_access import ScreenerDataAccess
 
-__all__ = ["SensitivitySpec", "DEFAULT_SPECS", "SensitivityRunner"]
+__all__ = ["SensitivitySpec", "DEFAULT_SPECS", "SensitivityRunner", "select_best_on_validation"]
 
 
 @dataclass
@@ -40,6 +40,16 @@ def build_strategy_config(param: str, value: float) -> Dict[str, Any]:
     return {"strategies": {"technical": {"thresholds": {param: value}}}}
 
 
+def select_best_on_validation(rows: List[Dict[str, Any]], metric: str = "sharpe") -> Dict[str, Any]:
+    """Select a parameter candidate using validation metrics only."""
+    if not rows:
+        raise ValueError("rows must not be empty")
+    key = f"validation_{metric}"
+    if any(key not in row for row in rows):
+        raise ValueError(f"all rows must include {key}")
+    return max(rows, key=lambda row: float(row[key]))
+
+
 class SensitivityRunner:
     """Runs mini backtrack tests for each (param, value) and aggregates metrics."""
 
@@ -54,6 +64,8 @@ class SensitivityRunner:
         self.bt_config = bt_config or BacktestConfig(
             start_date="2025-08-01",
             end_date="2026-06-30",
+            train_end="2025-12-31",
+            validation_end="2026-03-31",
             pool_size=12,
             top_k=4,
             rebalance_days=20,
@@ -65,11 +77,15 @@ class SensitivityRunner:
         engine = BacktestEngine(self.da, self.bt_config)
         rows: List[Dict[str, Any]] = []
         for spec in self.specs:
+            spec_rows: List[Dict[str, Any]] = []
             for value in spec.values:
                 result = engine.run(pool=pool, strategy_config=build_strategy_config(spec.param, value))
                 p = result.performance
-                rows.append(
-                    {
+                validation = result.split_performance.get("validation", {})
+                test = result.split_performance.get("test", {})
+                if "sharpe" not in validation:
+                    raise RuntimeError("validation split metrics are required for parameter selection")
+                row = {
                         "param": spec.param,
                         "value": value,
                         "baseline": spec.baseline,
@@ -78,8 +94,13 @@ class SensitivityRunner:
                         "sharpe": p.get("sharpe", 0.0),
                         "max_drawdown": p.get("max_drawdown", 0.0),
                         "excess_return": p.get("excess_return", 0.0),
+                        "validation_sharpe": validation["sharpe"],
+                        "test_sharpe": test.get("sharpe"),
+                        "selected_on_validation": False,
                     }
-                )
+                rows.append(row)
+                spec_rows.append(row)
+            select_best_on_validation(spec_rows)["selected_on_validation"] = True
         return rows
 
     def report(self, rows: List[Dict[str, Any]]) -> str:
@@ -90,15 +111,17 @@ class SensitivityRunner:
             f"mini backtest pool={self.bt_config.pool_size} window={self.bt_config.start_date}..{self.bt_config.end_date}",
             f"- Parameters perturbed ± ~20% of baseline (no joint interactions shaded).",
             "",
-            "| Param | Value (Δ%) | Total Return | Sharpe | Max DD | Excess vs CSI300 |",
-            "|---|---|---|---|---|---|",
+            "| Param | Value (Δ%) | Selected on validation | Validation Sharpe | Test Sharpe | Total Return | Max DD |",
+            "|---|---|---|---:|---:|---:|---:|",
         ]
         for row in rows:
             delta = f"{row['delta_pct']:+.0f}%" if row["delta_pct"] is not None else "—"
             lines.append(
                 f"| {row['param']} | {row['value']} ({delta}) | "
-                f"{row['total_return'] * 100:.1f}% | {row['sharpe']:.2f} | "
-                f"{row['max_drawdown'] * 100:.1f}% | {row['excess_return'] * 100:.1f}% |"
+                f"{'yes' if row.get('selected_on_validation') else ''} | "
+                f"{row.get('validation_sharpe', 0.0):.2f} | "
+                f"{row.get('test_sharpe', 0.0) if row.get('test_sharpe') is not None else 0.0:.2f} | "
+                f"{row['total_return'] * 100:.1f}% | {row['max_drawdown'] * 100:.1f}% |"
             )
         lines.append("")
         lines.append(

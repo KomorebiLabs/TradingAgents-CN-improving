@@ -56,7 +56,21 @@ def build_markdown(result: BacktestResult) -> str:
     lines.append(f"- Transaction cost deducted: {fmt_pct(p.get('transaction_cost', 0.0))}")
     lines.append(f"- Executed orders: {p.get('executed_orders', 0)}")
     lines.append(f"- Unfilled orders: {p.get('unfilled_orders', 0)}")
+    lines.append(f"- Delayed fills: {p.get('delayed_fills', 0)}")
     lines.append("")
+
+    if result.split_performance:
+        lines.append("## Out-of-sample splits\n")
+        lines.append("| Split | Total Return | Sharpe | Max Drawdown | Periods |")
+        lines.append("|---|---:|---:|---:|---:|")
+        for split_name in ("train", "validation", "test"):
+            split = result.split_performance.get(split_name, {})
+            lines.append(
+                f"| {split_name} | {fmt_pct(split.get('total_return', 0.0))} | "
+                f"{split.get('sharpe', 0.0):.2f} | {fmt_pct(split.get('max_drawdown', 0.0))} | "
+                f"{split.get('periods', 0)} |"
+            )
+        lines.append("")
 
     lines.append("## Performance\n")
     lines.append("| Metric | Strategy |")
@@ -129,6 +143,7 @@ def save_report(result: BacktestResult, out_dir: Path) -> Path:
         "config": asdict(result.config),
         "metadata": result.artifact_metadata,
         "performance": result.performance,
+        "split_performance": result.split_performance,
         "signals": result.signal_log,
         "executions": result.execution_log,
     }

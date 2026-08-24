@@ -5,9 +5,10 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from tradingagents.backtest.engine import BacktestConfig, BacktestResult, build_pool
+from tradingagents.backtest.data import fetch_market_data
+from tradingagents.backtest.engine import BacktestConfig, BacktestEngine, BacktestResult, build_pool
 from tradingagents.backtest.performance import compute_performance, equity_curve_from_holdings
-from tradingagents.backtest.report import build_markdown
+from tradingagents.backtest.report import build_markdown, save_report
 
 
 def _dates(n: int) -> pd.DatetimeIndex:
@@ -197,6 +198,61 @@ def test_sell_cost_and_limit_down_unfilled_are_audited():
     assert blocked[1]["executed_sells"] == []
 
 
+def test_limit_up_order_retries_until_next_tradable_session():
+    dates = _dates(4)
+    close = pd.DataFrame({"600000.SH": [100.0, 110.0, 115.0, 120.0]}, index=dates)
+    audit = []
+
+    nav = equity_curve_from_holdings(
+        close,
+        {"2026-01-05": ["600000.SH"]},
+        execution_log=audit,
+    )
+
+    assert len(audit) == 2
+    assert audit[0]["status"] == "UNFILLED_RETRY"
+    assert audit[1]["status"] == "FILLED"
+    assert audit[1]["delay_days"] == 1
+    assert nav.iloc[-1] == pytest.approx(120.0 / 115.0)
+
+
+def test_fetch_market_data_returns_aligned_close_and_volume():
+    class FakeAccess:
+        def fetch_hist(self, ticker, start_date, end_date):
+            return pd.DataFrame(
+                {
+                    "date": ["2026-01-05", "2026-01-06"],
+                    "close": [10.0, 11.0],
+                    "volume": [1000.0, 0.0],
+                }
+            )
+
+    market = fetch_market_data(FakeAccess(), ["600000.SH"], "2026-01-05", "2026-01-06")
+
+    assert market.close.loc[pd.Timestamp("2026-01-06"), "600000.SH"] == pytest.approx(11.0)
+    assert market.volume.loc[pd.Timestamp("2026-01-06"), "600000.SH"] == pytest.approx(0.0)
+
+
+def test_engine_passes_historical_volume_to_execution(monkeypatch):
+    dates = _dates(3)
+    close = pd.DataFrame({"600000.SH": [100.0, 100.0, 110.0]}, index=dates)
+    volume = pd.DataFrame({"600000.SH": [1000.0, 0.0, 1000.0]}, index=dates)
+
+    monkeypatch.setattr(
+        "tradingagents.backtest.engine.fetch_market_data",
+        lambda *_args, **_kwargs: type("Market", (), {"close": close, "volume": volume})(),
+    )
+    monkeypatch.setattr(BacktestEngine, "select_topk", staticmethod(lambda *_args, **_kwargs: ["600000.SH"]))
+    monkeypatch.setattr("tradingagents.backtest.engine.fetch_benchmark", lambda *_args: None)
+
+    result = BacktestEngine(
+        object(),
+        BacktestConfig(start_date="2026-01-05", end_date="2026-01-07", rebalance_days=10),
+    ).run(pool=["600000.SH"])
+
+    assert result.execution_log[0]["blocked_suspensions"] == ["600000.SH"]
+
+
 # ---------------------------------------------------------------------------
 # pool building (deterministic, mocked)
 # ---------------------------------------------------------------------------
@@ -259,6 +315,7 @@ def test_report_markdown_includes_metrics():
     assert "technical factor" in md  # honest limitation documented
     assert "T+1 close" in md
     assert "survivorship bias" in md
+    assert "Delayed fills" in md
 
 
 def test_backtest_defaults_include_realistic_execution_costs():
@@ -267,3 +324,63 @@ def test_backtest_defaults_include_realistic_execution_costs():
     assert cfg.commission_rate > 0
     assert cfg.stamp_duty_sell > 0
     assert cfg.slippage > 0
+
+
+def test_backtest_reports_train_validation_and_test_metrics(monkeypatch):
+    dates = _dates(8)
+    close = pd.DataFrame({"600000.SH": [100, 100, 101, 102, 103, 104, 105, 106]}, index=dates)
+    volume = pd.DataFrame({"600000.SH": [1000] * 8}, index=dates)
+    monkeypatch.setattr(
+        "tradingagents.backtest.engine.fetch_market_data",
+        lambda *_args, **_kwargs: type("Market", (), {"close": close, "volume": volume})(),
+    )
+    monkeypatch.setattr(BacktestEngine, "select_topk", staticmethod(lambda *_args, **_kwargs: ["600000.SH"]))
+    sparse_benchmark = pd.Series([100.0, 102.0, 104.0, 106.0], index=dates[::2])
+    monkeypatch.setattr("tradingagents.backtest.engine.fetch_benchmark", lambda *_args: sparse_benchmark)
+
+    cfg = BacktestConfig(
+        start_date="2026-01-05",
+        end_date="2026-01-14",
+        train_end="2026-01-07",
+        validation_end="2026-01-09",
+        rebalance_days=20,
+    )
+    result = BacktestEngine(object(), cfg).run(pool=["600000.SH"])
+
+    assert set(result.split_performance) == {"train", "validation", "test"}
+    assert result.artifact_metadata["threshold_selection_scope"] == "validation_only"
+    assert result.artifact_metadata["split_boundaries"]["validation_end"] == "2026-01-09"
+    assert "Out-of-sample splits" in build_markdown(result)
+
+
+def test_backtest_rejects_unordered_sample_boundaries():
+    with pytest.raises(ValueError, match="train_end"):
+        BacktestConfig(train_end="2026-02-01", validation_end="2026-01-01").validate()
+
+
+def test_saved_artifact_contains_split_performance(tmp_path):
+    nav = pd.Series([1.0, 1.1], index=_dates(2))
+    result = BacktestResult(
+        config=BacktestConfig(), pool=[], close=pd.DataFrame(), holdings={}, nav=nav,
+        benchmark=None, performance=compute_performance(nav),
+        split_performance={"validation": {"sharpe": 1.2}, "test": {"sharpe": 0.4}},
+        run_id="split-test",
+    )
+
+    save_report(result, tmp_path)
+
+    import json
+    artifact = json.loads((tmp_path / "backtest_artifact.json").read_text(encoding="utf-8"))
+    assert artifact["split_performance"]["validation"]["sharpe"] == pytest.approx(1.2)
+
+
+def test_backtest_cli_exposes_sample_split_boundaries(capsys):
+    from tradingagents.backtest.__main__ import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "--train-end" in output
+    assert "--validation-end" in output

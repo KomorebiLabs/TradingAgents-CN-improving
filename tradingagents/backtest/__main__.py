@@ -21,6 +21,8 @@ def main(argv=None) -> int:
     parser.add_argument("--pool-size", type=int, default=80, help="CSI300 slice size")
     parser.add_argument("--top-k", type=int, default=5, help="stocks held per rebalance")
     parser.add_argument("--rebalance-days", type=int, default=20, help="rebalance frequency (trading days)")
+    parser.add_argument("--train-end", default=None, help="inclusive training window end YYYY-MM-DD")
+    parser.add_argument("--validation-end", default=None, help="inclusive validation window end YYYY-MM-DD")
     parser.add_argument("--out", default=str(_PROJECT_ROOT / "reports" / "backtest"), help="output directory")
     parser.add_argument("--smoke", action="store_true", help="tiny pool + few days for a quick smoke run")
     parser.add_argument("--sensitivity", action="store_true", help="run R9 parameter sensitivity scan (mini backtests)")
@@ -51,6 +53,8 @@ def main(argv=None) -> int:
         pool_size=6 if args.smoke else args.pool_size,
         top_k=3 if args.smoke else args.top_k,
         rebalance_days=10 if args.smoke else args.rebalance_days,
+        train_end=args.train_end,
+        validation_end=args.validation_end,
     )
     print(f"[backtest] window={cfg.start_date}..{cfg.end_date} pool={cfg.pool_size} top_k={cfg.top_k} rebal={cfg.rebalance_days}d")
     result = BacktestEngine(da, cfg).run()
