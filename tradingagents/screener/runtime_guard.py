@@ -102,7 +102,17 @@ def check_data_consistency(screening_result: ScreeningResult) -> List[str]:
     issues: List[str] = []
 
     if not screening_result.candidates:
-        issues.append("[FATAL] 没有候选股票，策略可能全部失效")
+        if screening_result.metrics.get("pipeline_failed"):
+            screening_result.run_status = "PIPELINE_FAILED"
+            issues.append("[FATAL] Screener 关键阶段执行失败，没有形成可消费结果")
+        elif any(status != "ready" for status in screening_result.strategy_status.values()):
+            screening_result.run_status = "NO_CANDIDATE_DEGRADED"
+            issues.append("[WARN] 数据或策略处于降级状态，本次没有形成候选股票")
+        else:
+            screening_result.run_status = "NO_CANDIDATE_VALID"
+            issues.append("[INFO] 筛选流程正常完成，本次没有符合条件的候选股票")
+    else:
+        screening_result.run_status = "COMPLETED"
 
     try:
         trade_dt = datetime.strptime(screening_result.trade_date, "%Y-%m-%d")

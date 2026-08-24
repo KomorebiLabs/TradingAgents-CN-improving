@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 from tradingagents.screener.config import SCREENER_CONFIG, SCREENER_THRESHOLDS
 from tradingagents.screener.models import SignalCard
+from tradingagents.screener.qualification import apply_evidence_qualification
 
 from .conflicts import (
     _cross_strategy_conflict,
@@ -86,4 +87,4 @@ def _merge_card_group(cards: List[SignalCard], conflict_priority: Dict[str, Any]
             k: v for k, v in cp.items() if k not in DEFAULT_CONFLICT_PRIORITY
         },
     }
-    return base
+    return apply_evidence_qualification(base)

@@ -75,6 +75,9 @@ def merge_signal_cards(
 
     for card in merged_cards:
         should_drop, reasons = _should_drop_card(card, thresholds, conflict_priority)
+        if config.get("output_purpose", "research") == "recommendation" and not card.recommendation_eligible:
+            should_drop = True
+            reasons.append("missing_required_evidence")
         if should_drop:
             policy_tag = _pick_policy_selection_tag(card)
             capital_tag = _pick_capital_quality_tag(card)
@@ -86,6 +89,9 @@ def merge_signal_cards(
                     "ticker": card.ticker,
                     "company_name": card.company_name,
                     "reasons": reasons,
+                    "verified_modules": card.verified_modules,
+                    "missing_required_modules": card.missing_required_modules,
+                    "degraded_modules": card.degraded_modules,
                     # P5-4: funnel_stage indicates where in the funnel the drop occurred
                     "funnel_stage": "stageb_hard_filter",
                     "stagea_reason_ref": stagea_ref,
