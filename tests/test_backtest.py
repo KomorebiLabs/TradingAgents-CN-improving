@@ -68,12 +68,12 @@ def test_equity_curve_equal_weight_two_stocks():
         },
         index=dates,
     )
-    # signal on day 0: hold both equal weight; day1: 10% each; day2: A +10%, B flat
+    # T0 close signal executes at T+1 close; returns start with the T+2 interval.
     nav = equity_curve_from_holdings(close, {"2026-01-05": ["sh600001", "sh600002"]})
     assert nav.iloc[0] == pytest.approx(1.0)
-    assert nav.iloc[1] == pytest.approx(1.10)  # (1.10+1.10)/2 / 1
-    # day2: A 121/110 = +10%, B 110/110=0  -> weighted +5% -> 1.10*1.05
-    assert nav.iloc[2] == pytest.approx(1.10 * 1.05)
+    assert nav.iloc[1] == pytest.approx(1.0)
+    # day2: A 121/110 = +10%, B 110/110=0 -> weighted +5%.
+    assert nav.iloc[2] == pytest.approx(1.05)
 
 
 def test_equity_curve_signal_switch_reweights():
@@ -110,6 +110,91 @@ def test_equity_curve_missing_price_skipped():
     assert nav.iloc[1] == pytest.approx(1.0)
     # day2: both +10% -> 1.10
     assert nav.iloc[2] == pytest.approx(1.10)
+
+
+def test_signal_at_close_cannot_capture_next_close_move_before_execution():
+    dates = _dates(3)
+    close = pd.DataFrame({"a": [100.0, 200.0, 220.0]}, index=dates)
+
+    nav = equity_curve_from_holdings(close, {"2026-01-05": ["a"]})
+
+    assert nav.iloc[1] == pytest.approx(1.0)
+    assert nav.iloc[2] == pytest.approx(1.10)
+
+
+def test_execution_costs_reduce_nav_and_are_audited():
+    dates = _dates(3)
+    close = pd.DataFrame({"600000.SH": [100.0, 100.0, 110.0]}, index=dates)
+    audit = []
+
+    nav = equity_curve_from_holdings(
+        close,
+        {"2026-01-05": ["600000.SH"]},
+        execution_costs={"commission_rate": 0.001, "stamp_duty_sell": 0.0, "slippage": 0.0},
+        execution_log=audit,
+    )
+
+    assert nav.iloc[1] == pytest.approx(0.999)
+    assert nav.iloc[2] == pytest.approx(0.999 * 1.10)
+    assert audit[0]["turnover"] == pytest.approx(1.0)
+    assert audit[0]["transaction_cost"] == pytest.approx(0.001)
+
+
+def test_limit_up_blocks_buy_and_records_unfilled_order():
+    dates = _dates(3)
+    close = pd.DataFrame({"600000.SH": [100.0, 110.0, 121.0]}, index=dates)
+    audit = []
+
+    nav = equity_curve_from_holdings(
+        close,
+        {"2026-01-05": ["600000.SH"]},
+        execution_log=audit,
+    )
+
+    assert nav.iloc[-1] == pytest.approx(1.0)
+    assert audit[0]["blocked_buys"] == ["600000.SH"]
+    assert audit[0]["executed_buys"] == []
+
+
+def test_suspended_stock_blocks_execution_when_volume_is_zero():
+    dates = _dates(3)
+    close = pd.DataFrame({"600000.SH": [100.0, 100.0, 110.0]}, index=dates)
+    volume = pd.DataFrame({"600000.SH": [1000.0, 0.0, 1000.0]}, index=dates)
+    audit = []
+
+    nav = equity_curve_from_holdings(
+        close,
+        {"2026-01-05": ["600000.SH"]},
+        execution_volume=volume,
+        execution_log=audit,
+    )
+
+    assert nav.iloc[-1] == pytest.approx(1.0)
+    assert audit[0]["blocked_suspensions"] == ["600000.SH"]
+
+
+def test_sell_cost_and_limit_down_unfilled_are_audited():
+    dates = _dates(4)
+    flat = pd.DataFrame({"600000.SH": [100.0, 100.0, 100.0, 100.0]}, index=dates)
+    audit = []
+    nav = equity_curve_from_holdings(
+        flat,
+        {"2026-01-05": ["600000.SH"], "2026-01-06": []},
+        execution_costs={"commission_rate": 0.001, "stamp_duty_sell": 0.002, "slippage": 0.0},
+        execution_log=audit,
+    )
+    assert nav.iloc[-1] == pytest.approx(0.999 * 0.997)
+    assert audit[1]["sell_turnover"] == pytest.approx(1.0)
+
+    falling = pd.DataFrame({"600000.SH": [100.0, 100.0, 90.0, 81.0]}, index=dates)
+    blocked = []
+    equity_curve_from_holdings(
+        falling,
+        {"2026-01-05": ["600000.SH"], "2026-01-06": []},
+        execution_log=blocked,
+    )
+    assert blocked[1]["blocked_sells"] == ["600000.SH"]
+    assert blocked[1]["executed_sells"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -172,3 +257,13 @@ def test_report_markdown_includes_metrics():
     assert "Strategy |" in md
     assert "2026-01-05" in md
     assert "technical factor" in md  # honest limitation documented
+    assert "T+1 close" in md
+    assert "survivorship bias" in md
+
+
+def test_backtest_defaults_include_realistic_execution_costs():
+    cfg = BacktestConfig()
+    assert cfg.execution_lag_days == 1
+    assert cfg.commission_rate > 0
+    assert cfg.stamp_duty_sell > 0
+    assert cfg.slippage > 0

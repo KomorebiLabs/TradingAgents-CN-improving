@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Dict, Any
 
@@ -42,7 +44,18 @@ def build_markdown(result: BacktestResult) -> str:
     lines.append(f"- Window: {cfg.start_date} → {cfg.end_date} ({p.get('periods', 0)} trading days)")
     lines.append(f"- Pool: CSI300 constituents, capped at {len(result.pool)} (seed={cfg.seed})")
     lines.append(f"- Selection: real `TechnicalStrategy.run` top {cfg.top_k}, rebalanced every {cfg.rebalance_days} days")
-    lines.append(f"- Weights: equal-weight on holdings; trading costs NOT modelled")
+    lines.append("- Execution: signal at T close, filled after T+1 close; returns begin on the following interval")
+    lines.append(
+        f"- Costs: commission {cfg.commission_rate:.4%} each side, "
+        f"stamp duty {cfg.stamp_duty_sell:.4%} on sells, slippage {cfg.slippage:.4%} each side"
+    )
+    lines.append("")
+
+    lines.append("## Execution audit\n")
+    lines.append(f"- Turnover: {p.get('turnover', 0.0):.4f}")
+    lines.append(f"- Transaction cost deducted: {fmt_pct(p.get('transaction_cost', 0.0))}")
+    lines.append(f"- Executed orders: {p.get('executed_orders', 0)}")
+    lines.append(f"- Unfilled orders: {p.get('unfilled_orders', 0)}")
     lines.append("")
 
     lines.append("## Performance\n")
@@ -62,6 +75,7 @@ def build_markdown(result: BacktestResult) -> str:
     lines.append("## Files\n")
     lines.append("- `equity_curve.csv` — daily normalized strategy nav (and benchmark if available)")
     lines.append("- `equity_curve.png` — strategy vs benchmark equity curves")
+    lines.append("- `backtest_artifact.json` — reproducibility metadata and execution audit")
     lines.append("")
 
     lines.append("## Limitations (documented honestly)\n")
@@ -70,8 +84,8 @@ def build_markdown(result: BacktestResult) -> str:
         "from point-in-time OHLCV). Policy / Smart-Money factors need historical concept / "
         "fund-flow snapshots that free vendors do not provide."
     )
-    lines.append("- Trading costs, slippage and limit-move execution are not modelled.")
-    lines.append("- Stock pool is a deterministic CSI300 slice; survivorship of constituents applies.")
+    lines.append("- Limit-touch orders are blocked, but suspension checks require historical volume data not yet supplied by this engine.")
+    lines.append("- Stock pool uses currently fetched CSI300 constituents; historical constituent snapshots are unavailable, so survivorship bias applies.")
     lines.append("- Historical results are NOT indicative of future returns.")
     return "\n".join(lines)
 
@@ -109,6 +123,18 @@ def save_report(result: BacktestResult, out_dir: Path) -> Path:
         if len(bench) >= 2:
             frame["benchmark"] = bench / bench.iloc[0]
     frame.to_csv(out_dir / "equity_curve.csv")
+
+    artifact = {
+        "run_id": result.run_id,
+        "config": asdict(result.config),
+        "metadata": result.artifact_metadata,
+        "performance": result.performance,
+        "signals": result.signal_log,
+        "executions": result.execution_log,
+    }
+    (out_dir / "backtest_artifact.json").write_text(
+        json.dumps(artifact, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
 
     try:
         plot_equity_curve(result, out_dir / "equity_curve.png")
