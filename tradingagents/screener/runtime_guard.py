@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import Callable, List, Tuple
 
 from tradingagents.screener.models import ScreeningResult
 
@@ -18,8 +18,17 @@ class RuntimeTimeConfig:
 
 
 class TimeValidator:
-    def __init__(self, config: RuntimeTimeConfig | None = None):
+    def __init__(
+        self,
+        config: RuntimeTimeConfig | None = None,
+        trading_day_checker: Callable[[object], bool] | None = None,
+    ):
         self.config = config or RuntimeTimeConfig()
+        if trading_day_checker is None:
+            from tradingagents.screener.trading_calendar import is_a_share_trading_day
+
+            trading_day_checker = is_a_share_trading_day
+        self.trading_day_checker = trading_day_checker
 
     def validate(
         self,
@@ -36,6 +45,11 @@ class TimeValidator:
             try:
                 trade_dt = datetime.strptime(trade_date, "%Y-%m-%d")
                 is_past = trade_dt.date() < now.date()
+                if (
+                    not self.trading_day_checker(trade_dt.date())
+                    and not self.config.allow_non_trading_day_override
+                ):
+                    return False, [f"[FATAL] {trade_date} 是 A 股非交易日"]
             except ValueError:
                 pass
 
@@ -51,12 +65,12 @@ class TimeValidator:
         time_only = time_str  # e.g. "14:30"
 
         if not is_past and "09:30" <= time_only < "15:00":
-            if mode in {"MVP", "EXTENDED"}:
+            if mode != "EXPERIMENTAL":
                 return False, ["[FATAL] 当前处于盘中，生产模式默认拒绝运行"]
             if mode == "EXPERIMENTAL" and self.config.allow_experimental_intraday:
                 warnings.append("[WARN] 当前处于盘中，实验模式允许运行，但数据可能不完整")
 
-        if not is_past and "15:00" <= time_str < self.config.earliest_run_time and mode in {"MVP", "EXTENDED"}:
+        if not is_past and "15:00" <= time_str < self.config.earliest_run_time and mode != "EXPERIMENTAL":
             return False, [f"[FATAL] 当前时间 {time_str} 处于收盘后未稳定窗口，默认拒绝运行"]
 
         if is_past and "15:00" <= time_str < self.config.earliest_run_time:
