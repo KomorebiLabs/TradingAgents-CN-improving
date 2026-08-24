@@ -31,6 +31,39 @@ DEFAULT_RULES: Dict[str, float] = {
 }
 
 
+def price_limit_pct(
+    ticker: str,
+    *,
+    is_st: bool = False,
+    listing_days: int | None = None,
+) -> float | None:
+    """Return the A-share daily price limit percentage, or None when unrestricted."""
+    code = ticker.split(".", 1)[0]
+    suffix = ticker.rsplit(".", 1)[-1].upper() if "." in ticker else ""
+    if listing_days is not None and listing_days <= 5:
+        return None
+    if is_st:
+        return 5.0
+    if suffix == "BJ" or code.startswith(("4", "8", "92")):
+        return 30.0
+    if code.startswith(("300", "301", "688", "689")):
+        return 20.0
+    return 10.0
+
+
+def is_price_change_anomalous(
+    pct_change: float,
+    ticker: str,
+    *,
+    is_st: bool = False,
+    listing_days: int | None = None,
+    tolerance_pct: float = 0.2,
+) -> bool:
+    """Flag values beyond the legal limit; a valid limit touch is not an anomaly."""
+    limit = price_limit_pct(ticker, is_st=is_st, listing_days=listing_days)
+    return limit is not None and abs(float(pct_change)) > limit + tolerance_pct
+
+
 def load_rules() -> Dict[str, float]:
     """Defaults merged with the user override file (best-effort)."""
     rules = dict(DEFAULT_RULES)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 from typing import Any, Dict, List
@@ -47,6 +48,17 @@ from tradingagents.screener.runtime_guard import (
 from tradingagents.screener.universe import build_screening_universe
 
 
+@dataclass(frozen=True)
+class StageACandidate:
+    """Explainable lightweight score used only to budget Stage B work."""
+
+    ticker: str
+    data_completeness_score: float
+    liquidity_score: float
+    basic_momentum_score: float
+    stage_a_score: float
+
+
 class ScreenerEngine:
     """A1 skeleton engine.
 
@@ -87,12 +99,26 @@ class ScreenerEngine:
             max_data_age_days=runtime.get("max_data_age_days", 2),
         )
 
+    @staticmethod
+    def _prepare_stagea_input(tickers: List[str], max_input: int) -> List[str]:
+        """Deduplicate in source order, then enforce the Stage A input budget."""
+        budget = max(0, int(max_input))
+        return list(dict.fromkeys(tickers))[:budget]
+
+    @staticmethod
+    def _select_stageb_candidates(
+        candidates: List[StageACandidate], max_input: int
+    ) -> List[StageACandidate]:
+        """Select the strongest Stage A candidates with deterministic tie-breaking."""
+        budget = max(0, int(max_input))
+        return sorted(candidates, key=lambda item: (-item.stage_a_score, item.ticker))[:budget]
+
     def _run_stage_a(
         self,
         tickers: List[str],
         trade_date: str,
         data_access: Any,
-    ) -> tuple[List[str], Dict[str, List[str]]]:
+    ) -> tuple[List[StageACandidate], Dict[str, List[str]]]:
         """Stage A: Light pre-screening to quickly eliminate obviously invalid stocks.
 
         P5-3: Uses fast, low-cost checks to reduce Stage B computation load.
@@ -109,7 +135,7 @@ class ScreenerEngine:
 
         from tradingagents.ui.screener_console import print_progress_bar, clear_progress_line, console
 
-        passed: List[str] = []
+        passed: List[StageACandidate] = []
         total = len(tickers)
         lookback_days = self.config.get("strategies", {}).get("technical", {}).get("lookback_days", 100)
         from datetime import datetime as _dt, timedelta as _td
@@ -119,8 +145,7 @@ class ScreenerEngine:
         end_date = trade_date
         min_hist_rows = self.config.get("strategies", {}).get("technical", {}).get("thresholds", {}).get("hist_rows_minimum", 30)
         min_turnover_rate = self.config.get("strategies", {}).get("technical", {}).get("thresholds", {}).get("low_turnover_rate", 2.0)
-        limit_up_pct = 9.9
-        limit_down_pct = -9.9
+        from tradingagents.agents.utils.exchange_rules import is_price_change_anomalous
 
         drop_reasons: Dict[str, List[str]] = {
             "no_hist_data": [],
@@ -132,6 +157,9 @@ class ScreenerEngine:
         print_interval = 25  # print every 25 stocks for user-facing progress
         for i, raw_code in enumerate(tickers):
             drop_reason = None
+            data_completeness_score = 0.0
+            liquidity_score = 50.0
+            basic_momentum_score = 50.0
 
             try:
                 # Format ticker
@@ -149,6 +177,7 @@ class ScreenerEngine:
                 elif len(hist) < min_hist_rows:
                     drop_reason = "insufficient_history"
                 else:
+                    data_completeness_score = min(100.0, len(hist) / max(lookback_days, 1) * 100.0)
                     # Check 2: Basic liquidity from history data
                     # Calculate average turnover rate from recent data
                     if "turnover" in hist.columns or "turnover_rate" in hist.columns:
@@ -156,13 +185,26 @@ class ScreenerEngine:
                         recent_turnover = hist[turnover_col].tail(5).mean()
                         if not pd.isna(recent_turnover) and recent_turnover < min_turnover_rate:
                             drop_reason = "low_liquidity"
+                        elif not pd.isna(recent_turnover):
+                            liquidity_score = min(
+                                100.0,
+                                float(recent_turnover) / max(float(min_turnover_rate), 0.01) * 50.0,
+                            )
 
                     # Check 3: Extreme price anomaly from history
                     # Look for limit up/down in recent days
                     if "pct_change" in hist.columns or "change_pct" in hist.columns:
                         pct_col = "pct_change" if "pct_change" in hist.columns else "change_pct"
                         recent_changes = hist[pct_col].tail(3)
-                        if any(recent_changes >= limit_up_pct) or any(recent_changes <= limit_down_pct):
+                        mean_change = recent_changes.mean()
+                        if not pd.isna(mean_change):
+                            basic_momentum_score = max(0.0, min(100.0, 50.0 + float(mean_change) * 5.0))
+                        name_columns = [column for column in ("name", "stock_name") if column in hist.columns]
+                        is_st = bool(name_columns) and hist[name_columns[0]].astype(str).str.upper().str.contains("ST").any()
+                        if any(
+                            is_price_change_anomalous(change, ticker, is_st=is_st)
+                            for change in recent_changes.dropna()
+                        ):
                             drop_reason = "extreme_price_anomaly"
 
             except Exception:
@@ -171,7 +213,20 @@ class ScreenerEngine:
             if drop_reason:
                 drop_reasons[drop_reason].append(raw_code)
             else:
-                passed.append(raw_code)
+                stage_a_score = (
+                    data_completeness_score * 0.45
+                    + liquidity_score * 0.35
+                    + basic_momentum_score * 0.20
+                )
+                passed.append(
+                    StageACandidate(
+                        ticker=raw_code,
+                        data_completeness_score=round(data_completeness_score, 2),
+                        liquidity_score=round(liquidity_score, 2),
+                        basic_momentum_score=round(basic_momentum_score, 2),
+                        stage_a_score=round(stage_a_score, 2),
+                    )
+                )
 
             # Print user-facing progress every 50 stocks
             if (i + 1) % print_interval == 0 or (i + 1) == total:
@@ -226,12 +281,16 @@ class ScreenerEngine:
         console.print(f"[green][OK] Universe ready[/green]  [dim]{len(universe.tickers)} stocks  mode=[cyan]{mode}[/cyan]")
 
         # P5-3: Stage A - Light pre-screening
-        print_stage_header("Stage A", f"light pre-screening of {len(universe.tickers)} stocks")
-        stagea_input_count = len(universe.tickers)
-        stagea_pass_tickers, stagea_drop_reasons = self._run_stage_a(
-            universe.tickers, trade_date, data_access
+        stagea_universe_count = len(universe.tickers)
+        stagea_deduped_count = len(dict.fromkeys(universe.tickers))
+        stagea_max = self.config.get("stagea_max_input", stagea_deduped_count)
+        stagea_input_tickers = self._prepare_stagea_input(universe.tickers, stagea_max)
+        stagea_input_count = len(stagea_input_tickers)
+        print_stage_header("Stage A", f"light pre-screening of {stagea_input_count} stocks")
+        stagea_candidates, stagea_drop_reasons = self._run_stage_a(
+            stagea_input_tickers, trade_date, data_access
         )
-        stagea_pass_count = len(stagea_pass_tickers)
+        stagea_pass_count = len(stagea_candidates)
         stagea_drop_count = stagea_input_count - stagea_pass_count
 
         _logger.info(
@@ -241,9 +300,13 @@ class ScreenerEngine:
 
         # B-8.1: apply stageb_max_input truncation before Stage B
         stageb_max = self.config.get("stageb_max_input", 1000)
-        if len(stagea_pass_tickers) > stageb_max:
-            _logger.info(f"[Screener] Stage B limit applied: {len(stagea_pass_tickers)} -> {stageb_max}")
-            stagea_pass_tickers = stagea_pass_tickers[:stageb_max]
+        stageb_candidates = self._select_stageb_candidates(stagea_candidates, stageb_max)
+        if len(stagea_candidates) > len(stageb_candidates):
+            _logger.info(
+                f"[Screener] Stage B score limit applied: "
+                f"{len(stagea_candidates)} -> {len(stageb_candidates)}"
+            )
+        stagea_pass_tickers = [candidate.ticker for candidate in stageb_candidates]
 
         print_stage_header("Stage B", f"running strategies on {len(stagea_pass_tickers)} stocks")
 
@@ -279,11 +342,21 @@ class ScreenerEngine:
 
         # P5-3: Stage A audit info
         stagea_audit = {
+            "stagea_universe_count": stagea_universe_count,
+            "stagea_deduped_count": stagea_deduped_count,
+            "stagea_input_budget": max(0, int(stagea_max)),
             "stagea_input_count": stagea_input_count,
+            "stagea_budget_truncated_count": stagea_deduped_count - stagea_input_count,
             "stagea_pass_count": stagea_pass_count,
             "stagea_drop_count": stagea_drop_count,
             "stagea_drop_breakdown": _summarize_drop_reasons(stagea_drop_reasons),
-            "stageb_input_count": stagea_pass_count,
+            "stageb_input_budget": max(0, int(stageb_max)),
+            "stageb_input_count": len(stageb_candidates),
+            "stageb_selection_basis": "stage_a_score_desc_then_ticker_asc",
+            "stageb_selected_score_range": {
+                "highest": stageb_candidates[0].stage_a_score if stageb_candidates else None,
+                "lowest": stageb_candidates[-1].stage_a_score if stageb_candidates else None,
+            },
             "stagea_enabled": True,
         }
 

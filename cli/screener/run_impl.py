@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,12 +26,10 @@ console = Console(theme=TRADING_THEME)
 
 
 def _get_last_trading_day() -> str:
-    """Return the most recent trading day (Mon-Fri)."""
-    today = datetime.now()
-    weekday = today.weekday()
-    days_back = 0 if weekday < 5 else (1 if weekday == 5 else 2)
-    last = today - timedelta(days=days_back)
-    return last.strftime("%Y-%m-%d")
+    """Return the most recent session from the cached A-share calendar."""
+    from tradingagents.screener.trading_calendar import latest_a_share_trading_day
+
+    return latest_a_share_trading_day(datetime.now().date()).isoformat()
 
 
 def _load_tickers_from_file(path: str) -> List[str]:
