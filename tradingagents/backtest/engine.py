@@ -32,6 +32,7 @@ __all__ = ["BacktestConfig", "BacktestEngine", "BacktestResult", "build_pool"]
 
 @dataclass
 class BacktestConfig:
+    config_version: str = "backtest-v2"
     start_date: str = "2025-07-01"
     end_date: str = "2026-06-30"
     pool_size: int = 80          # cap on CSI300 constituents screened
@@ -39,6 +40,10 @@ class BacktestConfig:
     rebalance_days: int = 20     # ~monthly
     index_symbol: str = "000300"  # CSI300 constituents as the pool universe
     seed: Optional[int] = 42     # deterministic pool slice
+    execution_lag_days: int = 1  # signal at T close, fill after T+1 close
+    commission_rate: float = 0.00025
+    stamp_duty_sell: float = 0.0005
+    slippage: float = 0.001
 
 
 @dataclass
@@ -51,6 +56,8 @@ class BacktestResult:
     benchmark: Optional[pd.Series]
     performance: Dict[str, Any]
     signal_log: List[Dict[str, Any]] = field(default_factory=list)
+    execution_log: List[Dict[str, Any]] = field(default_factory=list)
+    artifact_metadata: Dict[str, Any] = field(default_factory=dict)
     run_id: str = ""
 
 
@@ -135,7 +142,18 @@ class BacktestEngine:
             holdings[d.strftime("%Y-%m-%d")] = picked
             signal_log.append({"date": d.strftime("%Y-%m-%d"), "top": picked})
 
-        nav = equity_curve_from_holdings(close, holdings)
+        execution_log: List[Dict[str, Any]] = []
+        nav = equity_curve_from_holdings(
+            close,
+            holdings,
+            execution_lag_days=cfg.execution_lag_days,
+            execution_costs={
+                "commission_rate": cfg.commission_rate,
+                "stamp_duty_sell": cfg.stamp_duty_sell,
+                "slippage": cfg.slippage,
+            },
+            execution_log=execution_log,
+        )
         benchmark = None
         try:
             benchmark = fetch_benchmark(cfg.start_date, cfg.end_date)
@@ -143,6 +161,19 @@ class BacktestEngine:
             benchmark = None  # benchmark optional; performance without excess still valid
 
         perf = compute_performance(nav, benchmark)
+        perf["turnover"] = round(sum(float(item["turnover"]) for item in execution_log), 4)
+        perf["transaction_cost"] = round(
+            sum(float(item["transaction_cost"]) for item in execution_log), 6
+        )
+        perf["executed_orders"] = sum(
+            len(item["executed_buys"]) + len(item["executed_sells"]) for item in execution_log
+        )
+        perf["unfilled_orders"] = sum(
+            len(item["blocked_buys"])
+            + len(item["blocked_sells"])
+            + len(item["blocked_suspensions"])
+            for item in execution_log
+        )
         return BacktestResult(
             config=cfg,
             pool=pool,
@@ -152,5 +183,15 @@ class BacktestEngine:
             benchmark=benchmark,
             performance=perf,
             signal_log=signal_log,
+            execution_log=execution_log,
+            artifact_metadata={
+                "schema_version": 2,
+                "data_source": "ScreenerDataAccess/fetch_close_prices",
+                "universe_as_of": "current_fetch",
+                "point_in_time_universe": False,
+                "survivorship_bias": True,
+                "threshold_selection_scope": "fixed_strategy_config",
+                "strategy_config": dict(strategy_config or {}),
+            },
             run_id=datetime.now().strftime("%Y%m%d_%H%M%S"),
         )

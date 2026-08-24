@@ -1015,30 +1015,30 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 
 #### 任务 5.1：先修复 T/T+1 收益泄漏
 
-- [ ] 构造三天价格：T 日出现大涨并产生信号，T+1 才允许持仓；
-- [ ] 断言策略净值不包含 T 日已经发生的涨幅；
-- [ ] 运行测试，确认当前实现失败；
-- [ ] 引入 signal date 与 effective date 的明确映射；
-- [ ] 从下一可成交时点开始应用新持仓收益；
-- [ ] 保持旧回测结果格式兼容或提高 artifact schema version。
+- [x] 构造三天价格：T 日出现大涨并产生信号，T+1 才允许持仓；
+- [x] 断言策略净值不包含 T 日已经发生的涨幅；
+- [x] 运行测试，确认当前实现失败；
+- [x] 引入 signal date 与 effective date 的明确映射；
+- [x] 从下一可成交时点开始应用新持仓收益；
+- [x] 保持旧回测结果格式兼容或提高 artifact schema version。
 
 验收：任何使用 T 日收盘数据的信号都不能获得 T 日收益。
 
 #### 任务 5.2：增加执行成本和成交约束
 
-- [ ] 增加 commission、stamp duty、slippage 配置；
-- [ ] 测试买入、卖出和换仓成本；
-- [ ] 测试停牌、涨停买不进、跌停卖不出；
+- [x] 增加 commission、stamp duty、slippage 配置；
+- [x] 测试买入、卖出和换仓成本；
+- [x] 测试停牌、涨停买不进、跌停卖不出；
 - [ ] 报告列出实际成交、未成交和延迟成交数量；
-- [ ] 将 turnover 纳入绩效指标。
+- [x] 将 turnover 纳入绩效指标。
 
 #### 任务 5.3：增加 point-in-time 约束和样本外验证
 
-- [ ] 回测 artifact 固定 config version、threshold snapshot、数据源和股票池 as_of；
-- [ ] 当前成分股回测继续显著标记 survivorship bias；
+- [x] 回测 artifact 固定 config version、threshold snapshot、数据源和股票池 as_of；
+- [x] 当前成分股回测继续显著标记 survivorship bias；
 - [ ] 有历史成分股数据后切换为 point-in-time universe；
 - [ ] 划分训练、验证、测试窗口，阈值只能在验证集选择；
-- [ ] 在历史快照不足前，不伪造 Policy/SmartMoney 全历史回测。
+- [x] 在历史快照不足前，不伪造 Policy/SmartMoney 全历史回测。
 
 ### 11.10 第 6 批：综合验证
 
@@ -1161,6 +1161,19 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 - [x] 新增 8 项直接测试；全量离线测试 `619 passed, 1 warning`。
 
 兼容边界：旧 `success` 和 `final_state_summary.analysis_mode` 字段继续保留。`success=True` 表示产生了可消费结果，不能再用于判断是否真实执行图；调用方应使用 `execution_status == GRAPH_COMPLETED` 判断真实图成功。主动 dry-run 与 fallback 均可能形成可消费文本，但不会再伪装成 graph completed。
+
+### 11.17 第 5 批阶段一实施记录（2026-08-24）
+
+本阶段完成回测执行时序和成交审计的可信度底座：
+
+- [x] 修复 T 日收盘信号立即获取 T 日涨幅的前视偏差；默认信号在 T 日收盘生成、T+1 收盘后成交，新持仓从下一收益区间生效；
+- [x] 引入佣金、卖出印花税和双边滑点配置，买入、卖出与换仓成本均从净值扣除；
+- [x] 增加主板/创业板/科创板/北交所涨跌停不可成交判断，并支持成交量为零或缺失时的停牌阻断；
+- [x] 每次调仓记录实际买卖、涨跌停阻断、停牌阻断、买卖 turnover 和交易成本；报告汇总成交数、未成交数、总换手和成本；
+- [x] 新增 `backtest_artifact.json`，固定 schema/config 版本、策略配置快照、数据入口、股票池时点声明及完整执行日志；
+- [x] 明确当前股票池来自当前抓取而非历史成分股快照，持续标记 survivorship bias；没有伪造 Policy/SmartMoney 历史回测。
+
+专项回归为 `17 passed`。尚未完成的第 5 批内容是：延迟成交队列、真实 OHLCV 接入后的默认停牌校验、训练/验证/测试窗口及阈值仅在验证集选择。这些项目应作为第 5 批阶段二继续实施，不能因 artifact 已升级而视为整个第 5 批完成。
 
 ## 十二、结论
 
