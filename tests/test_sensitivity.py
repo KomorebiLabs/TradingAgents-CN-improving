@@ -11,6 +11,7 @@ from tradingagents.backtest.sensitivity import (
     DEFAULT_SPECS,
     SensitivityRunner,
     build_strategy_config,
+    select_best_on_validation,
 )
 
 
@@ -48,6 +49,10 @@ def test_run_all_collects_rows_and_report(monkeypatch):
                 "excess_return": 0.02,
                 "periods": 100,
             },
+            split_performance={
+                "validation": {"sharpe": 0.8 + 0.01 * v},
+                "test": {"sharpe": 0.4 + 0.01 * v},
+            },
             run_id="t",
         )
 
@@ -72,6 +77,8 @@ def test_run_all_collects_rows_and_report(monkeypatch):
 
     rows = runner.run_all()
     assert len(rows) == sum(len(s.values) for s in DEFAULT_SPECS)
+    for spec in DEFAULT_SPECS:
+        assert sum(row["selected_on_validation"] for row in rows if row["param"] == spec.param) == 1
 
     md = runner.report(rows)
     assert "# Parameter Sensitivity Report" in md
@@ -92,3 +99,35 @@ def test_report_includes_baseline_delta():
     md = runner.report(rows)
     assert "0.18 (+0%)" in md
     assert "0.23 (+28%)" in md
+
+
+def test_parameter_selection_uses_validation_not_test_performance():
+    rows = [
+        {"param": "momentum", "value": 0.1, "validation_sharpe": 1.2, "test_sharpe": -1.0},
+        {"param": "momentum", "value": 0.2, "validation_sharpe": 0.8, "test_sharpe": 3.0},
+    ]
+
+    selected = select_best_on_validation(rows)
+
+    assert selected["value"] == 0.1
+
+
+def test_sensitivity_fails_closed_without_validation_metrics(monkeypatch):
+    from tradingagents.backtest import sensitivity
+
+    class FakeEngine:
+        def __init__(self, *_args):
+            pass
+
+        def run(self, **_kwargs):
+            return SimpleNamespace(performance={"sharpe": 9.0}, split_performance={})
+
+    monkeypatch.setattr(sensitivity, "BacktestEngine", FakeEngine)
+    runner = object.__new__(SensitivityRunner)
+    runner.da = None
+    runner.bt_config = SimpleNamespace(index_symbol="000300", pool_size=1, seed=42)
+    runner.specs = [DEFAULT_SPECS[0]]
+
+    import pytest
+    with pytest.raises(RuntimeError, match="validation"):
+        runner.run_all(pool=["600000.SH"])

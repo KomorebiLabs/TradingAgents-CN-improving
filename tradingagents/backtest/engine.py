@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from tradingagents.backtest.data import fetch_benchmark, fetch_close_prices
+from tradingagents.backtest.data import fetch_benchmark, fetch_market_data
 from tradingagents.backtest.performance import compute_performance, equity_curve_from_holdings
 from tradingagents.screener.data_access import ScreenerDataAccess
 from tradingagents.screener.strategies.technical import TechnicalStrategy
@@ -44,6 +44,20 @@ class BacktestConfig:
     commission_rate: float = 0.00025
     stamp_duty_sell: float = 0.0005
     slippage: float = 0.001
+    train_end: Optional[str] = None
+    validation_end: Optional[str] = None
+
+    def validate(self) -> None:
+        """Reject ambiguous or chronologically invalid sample boundaries."""
+        if bool(self.train_end) != bool(self.validation_end):
+            raise ValueError("train_end and validation_end must be configured together")
+        if self.train_end and self.validation_end:
+            start = pd.Timestamp(self.start_date)
+            train_end = pd.Timestamp(self.train_end)
+            validation_end = pd.Timestamp(self.validation_end)
+            end = pd.Timestamp(self.end_date)
+            if not start <= train_end < validation_end < end:
+                raise ValueError("sample boundaries must satisfy start <= train_end < validation_end < end")
 
 
 @dataclass
@@ -58,6 +72,7 @@ class BacktestResult:
     signal_log: List[Dict[str, Any]] = field(default_factory=list)
     execution_log: List[Dict[str, Any]] = field(default_factory=list)
     artifact_metadata: Dict[str, Any] = field(default_factory=dict)
+    split_performance: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     run_id: str = ""
 
 
@@ -128,9 +143,11 @@ class BacktestEngine:
 
     def run(self, pool: Optional[List[str]] = None, strategy_config: Optional[Dict[str, Any]] = None) -> BacktestResult:
         cfg = self.config
+        cfg.validate()
         pool = pool or build_pool(self.da, cfg.index_symbol, cfg.pool_size, cfg.seed)
 
-        close = fetch_close_prices(self.da, pool, cfg.start_date, cfg.end_date)
+        market = fetch_market_data(self.da, pool, cfg.start_date, cfg.end_date)
+        close = market.close
         if close.empty:
             raise RuntimeError("No price data fetched for pool — check data access / date window")
 
@@ -152,6 +169,7 @@ class BacktestEngine:
                 "stamp_duty_sell": cfg.stamp_duty_sell,
                 "slippage": cfg.slippage,
             },
+            execution_volume=market.volume,
             execution_log=execution_log,
         )
         benchmark = None
@@ -161,6 +179,19 @@ class BacktestEngine:
             benchmark = None  # benchmark optional; performance without excess still valid
 
         perf = compute_performance(nav, benchmark)
+        split_performance: Dict[str, Dict[str, Any]] = {}
+        if cfg.train_end and cfg.validation_end:
+            train_end = pd.Timestamp(cfg.train_end)
+            validation_end = pd.Timestamp(cfg.validation_end)
+            masks = {
+                "train": nav.index <= train_end,
+                "validation": (nav.index > train_end) & (nav.index <= validation_end),
+                "test": nav.index > validation_end,
+            }
+            for split_name, mask in masks.items():
+                split_nav = nav.loc[mask]
+                split_benchmark = benchmark.reindex(nav.index).loc[mask] if benchmark is not None else None
+                split_performance[split_name] = compute_performance(split_nav, split_benchmark)
         perf["turnover"] = round(sum(float(item["turnover"]) for item in execution_log), 4)
         perf["transaction_cost"] = round(
             sum(float(item["transaction_cost"]) for item in execution_log), 6
@@ -173,6 +204,9 @@ class BacktestEngine:
             + len(item["blocked_sells"])
             + len(item["blocked_suspensions"])
             for item in execution_log
+        )
+        perf["delayed_fills"] = sum(
+            1 for item in execution_log if item["status"] == "FILLED" and int(item["delay_days"]) > 0
         )
         return BacktestResult(
             config=cfg,
@@ -190,8 +224,16 @@ class BacktestEngine:
                 "universe_as_of": "current_fetch",
                 "point_in_time_universe": False,
                 "survivorship_bias": True,
-                "threshold_selection_scope": "fixed_strategy_config",
+                "threshold_selection_scope": "validation_only" if split_performance else "fixed_strategy_config",
+                "split_boundaries": {
+                    "train_end": cfg.train_end,
+                    "validation_end": cfg.validation_end,
+                    "test_start": str((pd.Timestamp(cfg.validation_end) + pd.Timedelta(days=1)).date())
+                    if cfg.validation_end
+                    else None,
+                },
                 "strategy_config": dict(strategy_config or {}),
             },
+            split_performance=split_performance,
             run_id=datetime.now().strftime("%Y%m%d_%H%M%S"),
         )

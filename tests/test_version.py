@@ -45,3 +45,32 @@ def test_no_hardcoded_version_drift():
         assert not re.search(r'__version__\s*=\s*"(?!0\.0\.0\+source")[0-9]', text), (
             f"{path.name} contains a hardcoded __version__ literal"
         )
+
+
+def test_cli_reconfigures_non_utf8_streams_before_rich_output():
+    from tradingagents.__main__ import _ensure_utf8_stdio
+
+    class FakeStream:
+        encoding = "gbk"
+
+        def __init__(self):
+            self.calls = []
+
+        def reconfigure(self, **kwargs):
+            self.calls.append(kwargs)
+
+    stdout = FakeStream()
+    stderr = FakeStream()
+
+    _ensure_utf8_stdio(stdout=stdout, stderr=stderr)
+
+    assert stdout.calls == [{"encoding": "utf-8", "errors": "replace"}]
+    assert stderr.calls == [{"encoding": "utf-8", "errors": "replace"}]
+
+
+def test_noninteractive_analyzer_summary_does_not_prompt(monkeypatch):
+    from tradingagents.ui import summary
+
+    monkeypatch.setattr(summary.Confirm, "ask", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("prompted")))
+
+    summary.print_summary({"ticker": "600519", "decision": "HOLD"}, "analyzer", prompt_for_report=False)

@@ -96,7 +96,7 @@ def equity_curve_from_holdings(
 
     weights = weights or {}
     active_weights: Dict[str, float] = {}
-    scheduled_weights: Dict[int, tuple[str, Dict[str, float]]] = {}
+    scheduled_weights: Dict[int, tuple[str, Dict[str, float], int]] = {}
     nav: List[float] = []
     prev_nav = 1.0
     costs = execution_costs or {}
@@ -114,7 +114,8 @@ def equity_curve_from_holdings(
                 target_weights = {t: (w_map.get(t, 1.0 / len(held)) if w_map else 1.0 / len(held)) for t in held}
             else:
                 target_weights = {}
-            scheduled_weights[index + lag] = (key, target_weights)
+            first_execution_index = index + lag
+            scheduled_weights[first_execution_index] = (key, target_weights, first_execution_index)
 
         if active_weights:
             # Missing returns contribute zero; uninvested weight remains cash.
@@ -132,7 +133,7 @@ def equity_curve_from_holdings(
         if index in scheduled_weights:
             from tradingagents.agents.utils.exchange_rules import price_limit_pct
 
-            signal_date, target_weights = scheduled_weights[index]
+            signal_date, target_weights, first_execution_index = scheduled_weights[index]
             next_weights = dict(active_weights)
             blocked_buys: List[str] = []
             blocked_sells: List[str] = []
@@ -184,6 +185,9 @@ def equity_curve_from_holdings(
                 + sell_turnover * (commission + stamp_duty + slippage)
             )
             prev_nav *= max(0.0, 1.0 - transaction_cost)
+            has_unfilled = bool(blocked_buys or blocked_sells or blocked_suspensions)
+            if has_unfilled and index + 1 < len(dates) and index + 1 not in scheduled_weights:
+                scheduled_weights[index + 1] = (signal_date, target_weights, first_execution_index)
             if execution_log is not None:
                 execution_log.append(
                     {
@@ -198,6 +202,8 @@ def equity_curve_from_holdings(
                         "sell_turnover": sell_turnover,
                         "turnover": buy_turnover + sell_turnover,
                         "transaction_cost": transaction_cost,
+                        "status": "UNFILLED_RETRY" if has_unfilled else "FILLED",
+                        "delay_days": index - first_execution_index,
                     }
                 )
         nav.append(prev_nav)

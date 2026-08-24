@@ -20,7 +20,7 @@ from tradingagents.ui.theme import TRADING_THEME
 console = Console(theme=TRADING_THEME)
 
 
-def print_analyzer_summary(result: Dict[str, Any]) -> None:
+def print_analyzer_summary(result: Dict[str, Any], *, prompt_for_report: bool = True) -> None:
     """Print the Analyzer execution summary.
     
     Args:
@@ -92,7 +92,7 @@ def print_analyzer_summary(result: Dict[str, Any]) -> None:
     console.print()
 
     # Display full report
-    if Confirm.ask("[cyan]Display full report on screen?[/cyan]", default=True):
+    if prompt_for_report and Confirm.ask("[cyan]Display full report on screen?[/cyan]", default=True):
         _display_full_report(result)
 
 
@@ -223,7 +223,9 @@ def print_screener_summary(result: Dict[str, Any]) -> None:
     console.print()
 
 
-def print_summary(result: Dict[str, Any], module_type: str) -> None:
+def print_summary(
+    result: Dict[str, Any], module_type: str, *, prompt_for_report: bool = True
+) -> None:
     """Main entry point: dispatch to appropriate summary printer.
     
     Args:
@@ -231,7 +233,7 @@ def print_summary(result: Dict[str, Any], module_type: str) -> None:
         module_type: "analyzer" or "screener"
     """
     if module_type == "analyzer":
-        print_analyzer_summary(result)
+        print_analyzer_summary(result, prompt_for_report=prompt_for_report)
     elif module_type == "screener":
         print_screener_summary(result)
     else:
