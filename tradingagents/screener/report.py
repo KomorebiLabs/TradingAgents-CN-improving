@@ -398,6 +398,7 @@ def render_markdown_report(
                 [
                     f"### {result.signal_card.ticker}",
                     f"- Success: {result.success}",
+                    f"- Execution Status: {result.execution_status}",
                     f"- Decision: {result.final_decision or 'N/A'}",
                     f"- Mode: {result.final_state_summary.get('analysis_mode', 'unknown')}",
                     f"- Semantic Context: {result.final_state_summary.get('semantic_context_summary', 'N/A')}",
