@@ -1105,6 +1105,63 @@ Screener 至少满足以下条件后，才可以称为“完成第一版”：
 
 在这些情况下，我不会用静默 fallback 掩盖问题，而会给出具体阻塞证据和可选方案。
 
+### 11.13 第 1 批实施记录（2026-08-24）
+
+本批已完成“执行正确性”四项修复：
+
+- [x] `stagea_max_input` 在统一引擎入口生效：先按来源顺序去重，再执行预算截断；审计新增原始股票池数、去重数、预算、实际输入数和预算截断数；
+- [x] Stage B 不再按供应商原始顺序截断：Stage A 为通过项生成数据完整度、流动性、基础动量及综合分，按“综合分降序 + 股票代码升序”稳定选择；审计新增 Stage B 预算、实际输入、选择依据和选中分数范围；
+- [x] 生产运行时间保护覆盖 `MVP/EXTENDED/FULL/FOCUSED/CUSTOM` 等所有非 `EXPERIMENTAL` 模式；历史日期不再绕过非交易日检查；CLI 最近交易日改由缓存 A 股交易日历解析；
+- [x] 固定 ±9.9% 异常规则替换为主板 10%、创业/科创 20%、北交所 30%、ST 5% 和上市前 5 日不限价规则；合法触及涨跌停不再被误判，只有超过法定边界与容差才属于异常数据；
+- [x] 新增 9 项直接回归测试；相关专项测试 29 项通过；全量离线测试 `596 passed, 1 warning`；
+- [x] GitNexus 变更审计结果为 HIGH：主要来自本报告事先声明的 `ScreenerEngine.run/_run_stage_a` 高风险漏斗主链；受影响流程集中在 Screener 运行链及复用 exchange rules 的 Trader/Portfolio Manager 提示链，全量回归未发现行为回退。
+
+已知降级边界：A 股交易日历优先使用本地缓存，首次缓存缺失时通过 AkShare 获取；供应商不可用时退化到工作日规则，并在日历对象上保留 `source=weekday_fallback` 与 `degraded=True`。后续批次应把该健康状态写入最终运行 artifact，而不只保留在日历组件内部。
+
+### 11.14 第 2 批实施记录（2026-08-24）
+
+本批已完成“数据新鲜度、证据资格与空候选状态”闭环：
+
+- [x] 新增来源级证据资格聚合，`SignalEvidence.freshness` 继续作为唯一来源日期事实；合并卡只保存派生摘要，不创建可独立写入的第二套来源日期；
+- [x] 三策略证据契约明确化：Technical 必需 `hist_fetch/fund_flow`；Policy 必需 `concept_list`、News 可选；Smart Money 必需 `hist_fetch`，资金流、逐笔、估值和龙虎榜为可选增强；
+- [x] 候选新增 `verified_modules`、`missing_required_modules`、`degraded_modules`、`verified_strategy_count`、`recommendation_eligible`；旧 `data_source_verified` 仅保留为兼容摘要；
+- [x] 新鲜度派生新增关键数据最旧日期、最大滞后天数和过期关键来源；Markdown 与 CLI JSON 均展示这些字段；
+- [x] 默认 `research` 模式允许保留研究候选但不会伪装成正式推荐；显式 `recommendation` 模式会阻断缺失或过期必需证据的候选；可选模块降级不会否决已有完整主路径；
+- [x] 空候选细分为 `NO_CANDIDATE_VALID`、`NO_CANDIDATE_DEGRADED` 和 `PIPELINE_FAILED`，只有最后一种产生 FATAL；状态在 `ScreeningResult` 构造时即完成推导，确保 artifact 写入前已经正确；
+- [x] 新增 7 项直接测试，专项及黄金回归 `25 passed`，全量离线测试 `605 passed, 1 warning`。
+
+严格边界：当前策略尚未普遍提供按股票、按目标交易日验证的 `freshness` 记录，因此真实运行生成的卡片可以作为 research 候选，但在补齐来源级日期前不会获得正式推荐资格。接口 probe 成功不能替代目标日期证据，本批没有用 probe 时间伪造业务数据日期。
+
+### 11.15 第 3 批实施记录（2026-08-24）
+
+本批已完成“股票池缓存、单一数据访问实例与供应商健康产物”闭环：
+
+- [x] Universe 缓存升级为 schema v2，写入 `trade_date/as_of/source_signature/built_at/expires_at`；读取时校验 schema、目标日期、来源签名和 TTL；
+- [x] 损坏 JSON、旧 schema、日期变化、配置来源变化和过期缓存全部失败关闭并触发重建，不再静默冒充当日股票池；
+- [x] `build_screening_universe` 接收并传播目标交易日，标准模式与 FOCUSED 模式使用同一缓存契约；
+- [x] Engine 创建的同一个 `ScreenerDataAccess` 现在同时注入 Universe、Stage A、三策略和 NameResolver，单次运行内共享缓存、健康统计、熔断和请求状态；
+- [x] capability summary 在策略与名称解析完成后刷新，避免最终报告只记录启动 probe、遗漏真实业务调用；
+- [x] Markdown 增加“供应商健康状态”，展示 calls、failures、failure_rate、avg_seconds、last_status 和脱敏后的 last_error；
+- [x] 每次运行独立生成 `vendor_health.json`，并在 artifact 路径映射中登记；主 `screening_result.json` 和 Markdown 同样执行防御性错误脱敏；
+- [x] 新增 6 项直接契约测试；缓存、健康和 DataAccess 相关回归 `58 passed`；全量离线测试 `611 passed, 1 warning`。
+
+严格边界：Universe 缓存失效时不会回退到过期缓存；如果供应商无法重建股票池，标准模式仍会明确失败并提示使用 CUSTOM，而不是把旧股票池标成当日有效。供应商健康统计是单次 run 的运行事实，不代表长期 SLA，长期稳定性仍需第 6 批连续多交易日验收。
+
+### 11.16 第 4 批实施记录（2026-08-24）
+
+本批已完成“DeepAnalyzer 状态枚举与配置统一”闭环：
+
+- [x] 修复 `CostTracker/TokenCountingCallback` 的失效导入路径；此前 DeepAnalyzer 在当前模块结构下无法实例化，真实深度分析会在启动前失败；
+- [x] `DeepAnalysisResult` 新增兼容字段 `execution_status`，统一四态：`GRAPH_COMPLETED`、`DRY_RUN_REQUESTED`、`FALLBACK_COMPLETED`、`FAILED`；
+- [x] 用户主动关闭真实图分析时返回 `DRY_RUN_REQUESTED`，不再与图异常回退共用同一 `dry_run` 状态；
+- [x] 图执行异常但能够形成可消费降级结论时返回 `FALLBACK_COMPLETED`；上下文构建失败或 graph/fallback 双重失败时返回结构化 `FAILED`，并保留错误原因；
+- [x] canonical 配置统一为 `deep_analyzer.enable_real_deep_analysis`，优先级为“嵌套显式配置 > 旧顶层兼容配置 > 环境变量 > 默认值”；旧顶层字段继续可用但写入弃用警告；
+- [x] CLI、JSON 和 Markdown 使用同一个 `execution_status`；CLI 完成摘要分别统计四类状态，不再把 FAILED 统称为 analyzed；
+- [x] Engine 的 `enable_deep_analysis=False` 继续完全跳过 DeepAnalyzer 阶段，CLI `--no-deep` 行为保持不变；
+- [x] 新增 8 项直接测试；全量离线测试 `619 passed, 1 warning`。
+
+兼容边界：旧 `success` 和 `final_state_summary.analysis_mode` 字段继续保留。`success=True` 表示产生了可消费结果，不能再用于判断是否真实执行图；调用方应使用 `execution_status == GRAPH_COMPLETED` 判断真实图成功。主动 dry-run 与 fallback 均可能形成可消费文本，但不会再伪装成 graph completed。
+
 ## 十二、结论
 
 Screener 当前最值得保留的是工程结构和可审计性，最需要补强的是数据可信度门禁与策略有效性验证。继续增加更多评分规则或更多 LLM 分析，并不能替代这两项工作。

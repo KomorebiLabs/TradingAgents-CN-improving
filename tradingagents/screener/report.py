@@ -6,6 +6,7 @@ import json
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.screener.models import DeepAnalysisResult, ScreeningResult
+from tradingagents.dataflows.vendor_health import redact_error
 
 
 def _extract_strategy_metric(card, strategy: str, key: str, default: Any = "N/A") -> Any:
@@ -183,6 +184,7 @@ def render_markdown_report(
     probe_results = capability_summary.get("probe_results", {})
     strategy_status = screening_result.strategy_status
     vendor_baseline = capability_summary.get("vendor_baseline", {})
+    vendor_health = _sanitize_vendor_health(capability_summary.get("vendor_health", {}))
     strategy_capabilities = capability_summary.get("strategy_capabilities", {})
     universe_metadata = screening_result.universe_metadata or screening_result.metrics.get("universe_summary", {})
     retained_semantic_summaries = {card.ticker: card.evidence_snapshot.get("semantic_decision_summary", "") for card in screening_result.candidates}
@@ -195,6 +197,7 @@ def render_markdown_report(
         f"- Run ID: {screening_result.run_id}",
         f"- Mode: {screening_result.mode}",
         f"- Trade Date: {screening_result.trade_date}",
+        f"- Run Status: {screening_result.run_status}",
         f"- Universe Size: {screening_result.universe_size}",
         f"- Candidates: {len(screening_result.candidates)}",
         f"- Dropped Candidates: {len(screening_result.dropped_candidates)}",
@@ -299,6 +302,19 @@ def render_markdown_report(
     else:
         lines.append("- None")
 
+    lines.extend(["", "## 供应商健康状态"])
+    if vendor_health:
+        for name, item in vendor_health.items():
+            lines.append(
+                f"- {name}: calls={item.get('calls', 0)}, failures={item.get('failures', 0)}, "
+                f"failure_rate={float(item.get('failure_rate', 0)) * 100:.1f}%, "
+                f"avg_seconds={item.get('avg_seconds', 0)}, last_status={item.get('last_status', 'unknown')}"
+            )
+            if item.get("last_error"):
+                lines.append(f"  - last_error: {item['last_error']}")
+    else:
+        lines.append("- None")
+
     lines.extend(["## Strategy Capabilities"])
     if strategy_capabilities:
         for strategy, payload in strategy_capabilities.items():
@@ -338,6 +354,13 @@ def render_markdown_report(
                 f"- Trigger: {card.trigger_reason}",
                 f"- Risks: {', '.join(card.risk_flags) if card.risk_flags else 'None'}",
                 f"- Verified: {card.data_source_verified}",
+                f"- 正式推荐资格: {card.recommendation_eligible}",
+                f"- 已验证模块: {', '.join(card.verified_modules) if card.verified_modules else 'None'}",
+                f"- 缺失必需模块: {', '.join(card.missing_required_modules) if card.missing_required_modules else 'None'}",
+                f"- 降级模块: {', '.join(card.degraded_modules) if card.degraded_modules else 'None'}",
+                f"- 关键数据最旧日期: {card.latest_required_data_date or 'N/A'}",
+                f"- 关键数据最大滞后: {card.max_required_data_lag_days if card.max_required_data_lag_days is not None else 'N/A'} 天",
+                f"- 过期关键来源: {', '.join(card.stale_required_sources) if card.stale_required_sources else 'None'}",
                 f"- Semantic Decision: {retained_semantic_summaries.get(card.ticker, card.evidence_snapshot.get('semantic_decision_summary', 'N/A'))}",
                 f"- Policy Selection: {_policy_summary(card)}",
                 f"- Smart Money Quality: {_smart_money_summary(card)}",
@@ -375,6 +398,7 @@ def render_markdown_report(
                 [
                     f"### {result.signal_card.ticker}",
                     f"- Success: {result.success}",
+                    f"- Execution Status: {result.execution_status}",
                     f"- Decision: {result.final_decision or 'N/A'}",
                     f"- Mode: {result.final_state_summary.get('analysis_mode', 'unknown')}",
                     f"- Semantic Context: {result.final_state_summary.get('semantic_context_summary', 'N/A')}",
@@ -401,13 +425,30 @@ def write_run_artifacts(
 
     json_path = run_dir / "screening_result.json"
     md_path = run_dir / "daily_gold_stocks_report.md"
+    vendor_health_path = run_dir / "vendor_health.json"
 
     payload = screening_result.model_dump()
+    capability_summary = payload.get("metrics", {}).get("capability_summary", {})
+    vendor_health = _sanitize_vendor_health(capability_summary.get("vendor_health", {}))
+    capability_summary["vendor_health"] = vendor_health
     payload["deep_analysis_results"] = [result.model_dump() for result in deep_results]
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     md_path.write_text(render_markdown_report(screening_result, deep_results), encoding="utf-8")
+    vendor_health_path.write_text(
+        json.dumps(vendor_health, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return {
         "json": str(json_path),
         "markdown": str(md_path),
+        "vendor_health": str(vendor_health_path),
     }
+
+
+def _sanitize_vendor_health(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized: Dict[str, Any] = {}
+    for name, raw_item in (snapshot or {}).items():
+        item = dict(raw_item or {})
+        item["last_error"] = redact_error(item.get("last_error", ""))
+        sanitized[str(name)] = item
+    return sanitized

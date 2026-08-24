@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,12 +26,10 @@ console = Console(theme=TRADING_THEME)
 
 
 def _get_last_trading_day() -> str:
-    """Return the most recent trading day (Mon-Fri)."""
-    today = datetime.now()
-    weekday = today.weekday()
-    days_back = 0 if weekday < 5 else (1 if weekday == 5 else 2)
-    last = today - timedelta(days=days_back)
-    return last.strftime("%Y-%m-%d")
+    """Return the most recent session from the cached A-share calendar."""
+    from tradingagents.screener.trading_calendar import latest_a_share_trading_day
+
+    return latest_a_share_trading_day(datetime.now().date()).isoformat()
 
 
 def _load_tickers_from_file(path: str) -> List[str]:
@@ -124,6 +122,7 @@ def _serialize_for_output(result: Any) -> Dict[str, Any]:
         "trade_date": result.trade_date,
         "started_at": result.started_at,
         "completed_at": result.completed_at,
+        "run_status": result.run_status,
         "universe_size": result.universe_size,
         "universe_metadata": result.universe_metadata,
         "candidates": [
@@ -133,6 +132,14 @@ def _serialize_for_output(result: Any) -> Dict[str, Any]:
                 "screening_score": c.screening_score,
                 "initial_confidence": c.initial_confidence,
                 "data_source_verified": c.data_source_verified,
+                "recommendation_eligible": c.recommendation_eligible,
+                "verified_modules": list(c.verified_modules),
+                "missing_required_modules": list(c.missing_required_modules),
+                "degraded_modules": list(c.degraded_modules),
+                "verified_strategy_count": c.verified_strategy_count,
+                "latest_required_data_date": c.latest_required_data_date,
+                "max_required_data_lag_days": c.max_required_data_lag_days,
+                "stale_required_sources": list(c.stale_required_sources),
                 "signal": _signal_from_score(c.screening_score),
                 "degraded": _is_degraded(c),
                 "concept_tags": [str(t) for t in (c.concept_tags or [])],
