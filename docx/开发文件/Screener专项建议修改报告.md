@@ -1277,10 +1277,10 @@ Screener 真实运行：
 
 **第三批：供应商和可观测性收尾**
 
-- [ ] 完成新浪概念/分笔字段兼容及东方财富短期熔断；
-- [ ] 统一 yfinance 股票代码格式；
-- [ ] 统一供应商请求统计和健康状态；
-- [ ] 清除 artifact 中文乱码；
+- [x] 完成新浪概念/分笔字段兼容及东方财富短期熔断；
+- [x] 统一 yfinance 股票代码格式；
+- [x] 统一供应商请求统计和健康状态；
+- [x] 清除 artifact 中文乱码；
 - [ ] 完成 FOCUSED → MVP → FULL 阶梯验收及连续 5 个交易日监控。
 
 #### 11.20.7 本轮验收结论
@@ -1380,6 +1380,46 @@ Screener 真实运行：
 - 真实运行发现 VWMA 输入存在 `NoneType / float`，需增加指标输入完整性守卫；
 - 新闻空结果、东方财富 ProxyError 和内幕交易不可用仍通过降级链暴露，属于第三批供应商兼容和健康状态范围；
 - Windows 终端的中文 mojibake 尚未修复，JSON/Markdown 产物需在第三批继续做编码验收。
+
+### 11.23 第三批供应商与可观测性收尾记录（2026-08-25）
+
+#### 11.23.1 供应商兼容与运行保护
+
+1. 新浪概念列表将 `label/concept/class/概念名称/分类名称/名称` 统一映射到 Policy 所需的 `name`；新浪分笔将 `volume/vol/成交量/成交量(手)` 和 `type/kind/性质/买卖盘性质` 统一映射到 `Volume/Type`。兼容层保留原始列，避免破坏调试证据。
+2. THS 与东方财富资金流均接入同一 run 内的三次连续失败短路；成功会重置对应计数，失败后不再对同一已知故障端点重复请求。
+3. Screener yfinance 代码格式与主数据流统一：`.SH/.XSHG → .SS`、`.XSHE → .SZ`、`.BSE/BJ → .BJ`，并覆盖前缀式北交所代码。
+4. OHLCV 清洗不再把相邻交易日成交量前向/后向填入缺失日；缺失成交量转为 `0.0`，既阻断 VWMA 的 `NoneType / float`，也避免伪造成交量证据。
+5. 真实财务/新闻复核：THS 三表主路径仍返回 placeholder，统一路由识别后继续降级；yfinance 后备分别返回资产负债表、现金流量表和利润表文本，新闻返回带不可信数据边界的真实内容。主路径漂移仍可见，但未被伪装成成功。
+
+#### 11.23.2 统一健康状态与编码产物
+
+1. Screener adapter 与主 Dataflow 共用同一 `VendorHealthTracker`，异常按 `timeout/rate_limited/auth_error/schema_error/exception` 分类，不再全部压成 exception。
+2. 每个供应商保存最近 100 个延迟样本并输出 P95；JSON/Markdown 同时展示 calls、failures、failure_rate、avg_seconds、p95_seconds、sample count 和 last_status，不无限保存调用明细。
+3. tracker 只在 Engine run 起点重置。Policy 内部重复能力校验只追加统计，不再擦除探测和股票池阶段调用。
+4. artifact 继续使用 UTF-8 与 `ensure_ascii=false`；写入前递归检查明确的解码损坏标记，替换为 `[编码损坏]`，避免乱码继续污染 JSON/Markdown，同时保留可审计的降级提示。
+5. 真实 FULL 产物 `vendor_health.json` 记录 11 个供应商调用项并含 P95；报告与 JSON 均能按 UTF-8 读取中文公司名。
+
+#### 11.23.3 阶梯真实验收
+
+本次均使用项目 `venv`、交易日 `2026-08-24`、`--no-deep`，并将 Stage A/B 预算限定为 `5/3`：
+
+- FOCUSED（沪深 300）：成分股 300，只输入 5→3；三策略完成，Merger 保留 1，耗时 77.9 秒；候选 `recommendation_eligible=false`，未伪装成正式推荐。
+- MVP：沪深 300 + 中证 500 合并 800，只输入 5→3；三策略完成，耗时 72.9 秒；候选仍被证据资格门禁阻断。
+- FULL：5 个指数合并 1809，只输入 5→3；三策略完成，耗时 86.0 秒；最终健康产物包含 11 个供应商项，候选仍不具正式推荐资格。
+
+首次误用系统 Python 时缺少 AkShare/BaoStock/yfinance，探测仅 `3/18` 且产生了空 FOCUSED 缓存。由此新增回归：空股票池缓存永不视为 fresh；FOCUSED 无成分股时明确失败且不写缓存。删除该单个无效缓存后，项目虚拟环境重跑恢复 300 只沪深 300 成分股。
+
+#### 11.23.4 连续运行监控边界
+
+新增 `python -m tradingagents.screener.acceptance --reports-dir reports/Screener --required-days 5 --output reports/Screener/acceptance_latest.json`。它按 `completed_at` 选择每个交易日的最新 run，检查 run_id、配置快照、股票池来源、vendor_health、候选资格和“旧数据正式推荐”，并在少于 5 个不同交易日时返回非零退出码。
+
+当前真实汇总只有 2 个不同交易日（`2026-08-21`、`2026-08-24`），两日 artifact 本身通过检查，但整体结果为 `passed=false / insufficient_distinct_trade_days`。因此 FOCUSED→MVP→FULL 阶梯已经完成，连续 5 个交易日仍保持未勾选；不得用重复运行或修改日期伪造完成。
+
+#### 11.23.5 离线回归
+
+- 第三批专项回归：供应商兼容、股票池缓存、健康统计、artifact、VWMA 与监控测试均通过；
+- 全量：`682 passed`；
+- 后续提交前仍需执行 compileall、diff check 与 GitNexus compare 检查。
 
 ## 十二、结论
 

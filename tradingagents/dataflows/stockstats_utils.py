@@ -74,10 +74,16 @@ def _clean_dataframe(data: pd.DataFrame) -> pd.DataFrame:
     data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
     data = data.dropna(subset=["Date"])
 
-    price_cols = [c for c in ["Open", "High", "Low", "Close", "Volume"] if c in data.columns]
-    data[price_cols] = data[price_cols].apply(pd.to_numeric, errors="coerce")
+    price_cols = [c for c in ["Open", "High", "Low", "Close"] if c in data.columns]
+    numeric_cols = price_cols + (["Volume"] if "Volume" in data.columns else [])
+    data[numeric_cols] = data[numeric_cols].apply(pd.to_numeric, errors="coerce")
     data = data.dropna(subset=["Close"])
     data[price_cols] = data[price_cols].ffill().bfill()
+    if "Volume" in data.columns:
+        # Missing volume is not a price gap: carrying a neighbouring session's
+        # volume into VWMA fabricates evidence and can also leave object/None
+        # operands in stockstats.  Zero means “no verified volume contribution”.
+        data["Volume"] = data["Volume"].fillna(0.0).astype(float)
 
     return data
 

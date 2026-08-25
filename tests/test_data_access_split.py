@@ -79,6 +79,9 @@ class TestTickerFormats:
             ("sh600519", "600519.SS"),
             ("sz000001", "000001.SZ"),
             ("600519.SS", "600519.SS"),
+            ("600519.SH", "600519.SS"),
+            ("BJ430047", "430047.BJ"),
+            ("430047.BSE", "430047.BJ"),
         ],
     )
     def test_yfinance(self, ticker, expected):

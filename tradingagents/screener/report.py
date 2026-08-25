@@ -9,6 +9,29 @@ from tradingagents.screener.models import DeepAnalysisResult, ScreeningResult
 from tradingagents.dataflows.vendor_health import redact_error
 
 
+_BROKEN_TEXT_MARKERS = ("\ufffd", "锟斤拷")
+
+
+def _clean_artifact_text(value: str) -> str:
+    """Replace unmistakable decode-loss markers with an auditable label."""
+    cleaned = str(value)
+    for marker in _BROKEN_TEXT_MARKERS:
+        cleaned = cleaned.replace(marker, "[编码损坏]")
+    return cleaned
+
+
+def _sanitize_artifact_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _clean_artifact_text(value)
+    if isinstance(value, dict):
+        return {str(key): _sanitize_artifact_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_artifact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_artifact_value(item) for item in value)
+    return value
+
+
 def _extract_strategy_metric(card, strategy: str, key: str, default: Any = "N/A") -> Any:
     for evidence in card.signal_breakdown:
         if evidence.strategy == strategy:
@@ -308,7 +331,10 @@ def render_markdown_report(
             lines.append(
                 f"- {name}: calls={item.get('calls', 0)}, failures={item.get('failures', 0)}, "
                 f"failure_rate={float(item.get('failure_rate', 0)) * 100:.1f}%, "
-                f"avg_seconds={item.get('avg_seconds', 0)}, last_status={item.get('last_status', 'unknown')}"
+                f"avg_seconds={item.get('avg_seconds', 0)}, "
+                f"p95_seconds={item.get('p95_seconds', 0)}, "
+                f"samples={item.get('latency_sample_count', 0)}, "
+                f"last_status={item.get('last_status', 'unknown')}"
             )
             if item.get("last_error"):
                 lines.append(f"  - last_error: {item['last_error']}")
@@ -427,13 +453,14 @@ def write_run_artifacts(
     md_path = run_dir / "daily_gold_stocks_report.md"
     vendor_health_path = run_dir / "vendor_health.json"
 
-    payload = screening_result.model_dump()
+    payload = _sanitize_artifact_value(screening_result.model_dump())
     capability_summary = payload.get("metrics", {}).get("capability_summary", {})
     vendor_health = _sanitize_vendor_health(capability_summary.get("vendor_health", {}))
     capability_summary["vendor_health"] = vendor_health
     payload["deep_analysis_results"] = [result.model_dump() for result in deep_results]
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    md_path.write_text(render_markdown_report(screening_result, deep_results), encoding="utf-8")
+    markdown = _clean_artifact_text(render_markdown_report(screening_result, deep_results))
+    md_path.write_text(markdown, encoding="utf-8")
     vendor_health_path.write_text(
         json.dumps(vendor_health, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -449,6 +476,8 @@ def _sanitize_vendor_health(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     sanitized: Dict[str, Any] = {}
     for name, raw_item in (snapshot or {}).items():
         item = dict(raw_item or {})
-        item["last_error"] = redact_error(item.get("last_error", ""))
+        item["last_error"] = _clean_artifact_text(
+            redact_error(item.get("last_error", ""))
+        )
         sanitized[str(name)] = item
     return sanitized

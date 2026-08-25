@@ -165,8 +165,6 @@ class ScreenerDataAccess:
         self, trade_date: str | None = None
     ) -> Dict[str, Any]:
         """执行全量 live probe，返回探测摘要."""
-        # R3: each run starts a fresh vendor-health audit (probe calls count too).
-        self.reset_vendor_health()
         summary = self._load_or_run_probes(trade_date=trade_date)
         summary = capability.apply_legacy_aliases(summary, self._vendors_config())
         warnings = list(summary.get("warnings", []))
@@ -557,14 +555,20 @@ class ScreenerDataAccess:
             DataFrame with fund flow data
         """
         http = self._http()
-        result = vendors.ths.fetch_fund_flow(http, symbol=symbol, symbol_type=symbol_type)
-        if result is not None and not getattr(result, "empty", True):
-            return result
+        if not self._vendor_circuit_open("ths_fund_flow"):
+            result = vendors.ths.fetch_fund_flow(http, symbol=symbol, symbol_type=symbol_type)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("ths_fund_flow")
+                return result
+            self._note_vendor_failure("ths_fund_flow")
 
         # H4 FIX: use AkShare EastMoney as fallback (instead of Baostock which always returns None)
-        result = vendors.misc.fetch_fund_flow_em(http)
-        if result is not None and not getattr(result, "empty", True):
-            return result
+        if not self._vendor_circuit_open("eastmoney_fund_flow"):
+            result = vendors.misc.fetch_fund_flow_em(http)
+            if result is not None and not getattr(result, "empty", True):
+                self._note_vendor_success("eastmoney_fund_flow")
+                return result
+            self._note_vendor_failure("eastmoney_fund_flow")
 
         return None
 

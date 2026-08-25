@@ -209,3 +209,21 @@ def test_fetch_hist_success_resets_failure_counter(monkeypatch, silent_da):
     for i in range(3, 6):
         silent_da.fetch_hist(f"sh6005{i}", "2026-07-01", "2026-08-16")
     assert silent_da._vendor_circuit_open("tencent_direct")
+
+
+def test_fund_flow_circuit_breaker_skips_repeatedly_failing_eastmoney(monkeypatch, silent_da):
+    calls = {"ths": 0, "eastmoney": 0}
+
+    monkeypatch.setattr(
+        "tradingagents.screener.vendors.ths.fetch_fund_flow",
+        lambda *args, **kwargs: calls.__setitem__("ths", calls["ths"] + 1),
+    )
+    monkeypatch.setattr(
+        "tradingagents.screener.vendors.misc.fetch_fund_flow_em",
+        lambda *args, **kwargs: calls.__setitem__("eastmoney", calls["eastmoney"] + 1),
+    )
+
+    for _ in range(6):
+        assert silent_da.fetch_fund_flow() is None
+
+    assert calls == {"ths": 3, "eastmoney": 3}

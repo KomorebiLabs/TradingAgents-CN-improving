@@ -24,6 +24,7 @@ from tradingagents.dataflows.vendor_health import (
     TRACKER,
     VendorHealth,
     VendorHealthTracker,
+    classify_exception,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,12 @@ def vendor_call(name: str) -> Callable:
                     exc,
                     dt,
                 )
-                TRACKER.record(name, ok=False, elapsed=dt, error=f"{type(exc).__name__}: {exc}")
+                TRACKER.record(
+                    name,
+                    status=classify_exception(exc),
+                    elapsed=dt,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
                 return None
             dt = time.time() - t0
             empty = result is None or (hasattr(result, "empty") and result.empty)

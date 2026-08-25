@@ -24,6 +24,8 @@ def _minimal_akshare_module(monkeypatch):
         "stock_lhb_stock_statistic_em",
         "stock_lhb_jgstatistic_em",
         "stock_zh_vote_baidu",
+        "stock_classify_sina",
+        "stock_intraday_sina",
     ):
         setattr(module, name, None)
     monkeypatch.setitem(sys.modules, "akshare", module)
@@ -111,6 +113,32 @@ def test_eastmoney_concept_is_an_independent_fallback(monkeypatch):
     assert result is not expected
     assert result.iloc[0]["板块名称"] == "人工智能"
     assert result.iloc[0]["source"] == "eastmoney"
+
+
+def test_sina_concept_normalizes_name_column(monkeypatch):
+    names = ["\u4eba\u5de5\u667a\u80fd", "\u673a\u5668\u4eba"]
+    frame = pd.DataFrame({"label": names, "code": ["gn_ai", "gn_robot"]})
+    monkeypatch.setattr("akshare.stock_classify_sina", lambda **_kwargs: frame)
+
+    result = sina.fetch_concept(_HttpStub())
+
+    assert result["name"].tolist() == names
+    assert result["source"].tolist() == ["sina", "sina"]
+
+
+def test_sina_tick_normalizes_current_kind_and_volume_columns(monkeypatch):
+    frame = pd.DataFrame(
+        {
+            "\u6210\u4ea4\u91cf(\u624b)": [120, 80],
+            "\u4e70\u5356\u76d8\u6027\u8d28": ["\u4e70\u76d8", "\u5356\u76d8"],
+        }
+    )
+    monkeypatch.setattr("akshare.stock_intraday_sina", lambda **_kwargs: frame)
+
+    result = sina.fetch_tick(_HttpStub(), "sz000001")
+
+    assert result["Volume"].tolist() == [120, 80]
+    assert result["Type"].tolist() == ["\u4e70\u76d8", "\u5356\u76d8"]
 
 
 def test_lhb_eastmoney_fallbacks_use_compatible_windows(monkeypatch):
