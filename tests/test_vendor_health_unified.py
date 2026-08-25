@@ -37,3 +37,14 @@ def test_tracker_redacts_secrets_from_last_error():
 def test_provider_text_distinguishes_permission_from_empty():
     assert classify_provider_text("No Tushare Pro permission for income") == "auth_error"
     assert classify_provider_text("No news found") == "empty"
+
+
+def test_tracker_reports_bounded_p95_latency():
+    tracker = VendorHealthTracker()
+    for value in range(1, 151):
+        tracker.record("eastmoney.flow", status="ok", elapsed=value / 1000)
+
+    item = tracker.snapshot()["eastmoney.flow"]
+
+    assert item["latency_sample_count"] == 100
+    assert item["p95_seconds"] == 0.145

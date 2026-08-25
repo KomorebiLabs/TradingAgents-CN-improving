@@ -21,8 +21,10 @@ def test_vendor_health_is_written_and_rendered_with_redacted_errors(tmp_path, mo
                         "failures": 1,
                         "failure_rate": 0.25,
                         "avg_seconds": 0.2,
+                        "p95_seconds": 0.4,
+                        "latency_sample_count": 4,
                         "last_status": "ok",
-                        "last_error": "token=super-secret",
+                        "last_error": "锟斤拷 token=super-secret",
                     }
                 }
             }
@@ -33,9 +35,12 @@ def test_vendor_health_is_written_and_rendered_with_redacted_errors(tmp_path, mo
 
     assert "vendor_health" in paths
     health = json.loads((tmp_path / "health-run" / "vendor_health.json").read_text(encoding="utf-8"))
-    assert health["tencent.hist"]["last_error"] == "token=[REDACTED]"
+    assert health["tencent.hist"]["last_error"] == "[编码损坏] token=[REDACTED]"
     markdown = (tmp_path / "health-run" / "daily_gold_stocks_report.md").read_text(encoding="utf-8")
     assert "## 供应商健康状态" in markdown
     assert "calls=4" in markdown
     assert "failure_rate=25.0%" in markdown
+    assert "p95_seconds=0.4" in markdown
     assert "super-secret" not in markdown
+    assert "锟斤拷" not in markdown
+    assert "[编码损坏]" in markdown

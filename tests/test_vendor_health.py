@@ -82,6 +82,15 @@ def test_vendor_call_empty_result_counts_as_degraded():
     assert health.snapshot()["it.empty"]["failures"] == 1
 
 
+def test_vendor_call_classifies_timeout_in_shared_health_contract():
+    @vendor_call("it.timeout")
+    def timed_out():
+        raise TimeoutError("provider request timeout")
+
+    assert timed_out() is None
+    assert health.snapshot()["it.timeout"]["last_status"] == "timeout"
+
+
 # ---------------------------------------------------------------------------
 # data_access integration
 # ---------------------------------------------------------------------------
@@ -109,6 +118,16 @@ def test_data_access_health_and_cache_stats(monkeypatch, silent_da_factory):
 
     da.reset_vendor_health()
     assert da.get_vendor_health_snapshot() == {}
+
+
+def test_repeated_capability_validation_does_not_erase_same_run_health(monkeypatch, silent_da_factory):
+    da = silent_da_factory()
+    health.record("universe.index", status="ok", elapsed=0.1)
+    monkeypatch.setattr(da, "_load_or_run_probes", lambda **_kwargs: {"warnings": []})
+
+    da.validate_interface_assumptions(trade_date="2026-08-24")
+
+    assert da.get_vendor_health_snapshot()["universe.index"]["calls"] == 1
 
 
 @pytest.fixture()

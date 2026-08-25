@@ -64,6 +64,18 @@ def fetch_concept(http: VendorHttp):
         df = ak.stock_classify_sina(symbol="概念分类")
     if df is not None and not df.empty:
         df = df.copy()
+        if "name" not in df.columns:
+            name_col = next(
+                (
+                    col
+                    for col in df.columns
+                    if str(col).lower() in {"label", "concept", "class"}
+                    or str(col) in {"\u6982\u5ff5\u540d\u79f0", "\u5206\u7c7b\u540d\u79f0", "\u540d\u79f0"}
+                ),
+                None,
+            )
+            if name_col is not None:
+                df["name"] = df[name_col].astype(str)
         df["source"] = "sina"
         return df
     return None
@@ -85,7 +97,20 @@ def fetch_tick(http: VendorHttp, symbol: str):
     sym = symbol.lower()
     http.sleep_for_vendor("sina")
     with http.spoof():
-        return ak.stock_intraday_sina(symbol=sym)
+        df = ak.stock_intraday_sina(symbol=sym)
+    if df is None or df.empty:
+        return None
+    df = df.copy()
+    aliases = {
+        "Volume": {"volume", "vol", "\u6210\u4ea4\u91cf", "\u6210\u4ea4\u91cf(\u624b)"},
+        "Type": {"type", "kind", "\u6027\u8d28", "\u4e70\u5356\u76d8\u6027\u8d28"},
+    }
+    normalized = {str(col).strip().lower(): col for col in df.columns}
+    for canonical, candidates in aliases.items():
+        source = next((normalized.get(value.lower()) for value in candidates if normalized.get(value.lower()) is not None), None)
+        if source is not None and canonical not in df.columns:
+            df[canonical] = df[source]
+    return df
 
 
 @vendor_call("sina.fetch_lhb_detail")

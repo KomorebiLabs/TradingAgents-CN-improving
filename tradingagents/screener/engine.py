@@ -262,6 +262,10 @@ class ScreenerEngine:
 
         started_at = datetime.now()
         data_access = self._build_data_access()
+        # One reset per run. Repeated capability checks inside strategies must
+        # append to the same audit instead of erasing universe/probe calls.
+        if hasattr(data_access, "reset_vendor_health"):
+            data_access.reset_vendor_health()
         capability_summary = data_access.validate_interface_assumptions(trade_date=trade_date)
         try:
             universe = build_screening_universe(

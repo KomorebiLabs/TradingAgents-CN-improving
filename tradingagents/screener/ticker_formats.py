@@ -152,17 +152,25 @@ def normalize_ticker_for_baostock(ticker: str) -> str:
 
 def normalize_ticker_for_yfinance(ticker: str) -> str:
     """转换代码为 yfinance 格式 (600519.SS / 000001.SZ)."""
-    t = ticker.strip()
+    t = ticker.strip().upper()
     lower = t.lower()
 
     if lower.startswith(("sh", "sz", "bj")):
         code = t[2:]
         if lower.startswith("sh"):
             return f"{code}.SS"
+        if lower.startswith("bj"):
+            return f"{code}.BJ"
         return f"{code}.SZ"
     if "." in t:
-        return t  # 已经是 600519.SS 格式
+        code, suffix = t.rsplit(".", 1)
+        suffix = {"SH": "SS", "XSHG": "SS", "XSHE": "SZ", "BSE": "BJ"}.get(
+            suffix, suffix
+        )
+        return f"{code}.{suffix}"
     # 纯数字
     if t.startswith(("6", "9")):
         return f"{t}.SS"
+    if t.startswith(("4", "8")):
+        return f"{t}.BJ"
     return f"{t}.SZ"

@@ -86,6 +86,9 @@ def load_universe_cache(
         return None
 
     metadata = dict(payload.get("metadata", {}))
+    tickers = list(payload.get("tickers", []))
+    if not tickers:
+        return None
     metadata.update(
         {
             "cache_status": "fresh",
@@ -95,7 +98,7 @@ def load_universe_cache(
         }
     )
     return UniverseBuildResult(
-        tickers=list(payload.get("tickers", [])),
+        tickers=tickers,
         metadata=metadata,
     )
 
@@ -428,6 +431,12 @@ def _build_focused_universe(
     else:
         constituents = []
         source_info = f"unknown:{focus_type}"
+
+    if not constituents:
+        raise RuntimeError(
+            f"[Screener] FOCUSED universe unavailable for {focus_type}={focus_value}. "
+            "No constituent data was returned; refusing to cache or scan an empty universe."
+        )
 
     # Apply input size protection (deduplicate + stable sort)
     stagea_max = config.get("stagea_max_input", 500)

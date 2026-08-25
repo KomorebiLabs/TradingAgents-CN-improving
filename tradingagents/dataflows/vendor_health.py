@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 import threading
+from collections import deque
 from dataclasses import dataclass, field
+from math import ceil
 from typing import Any, Dict, Optional
 
 
@@ -38,6 +40,9 @@ class VendorHealth:
     last_error: str = ""
     last_status: str = ""
     status_counts: Dict[str, int] = field(default_factory=dict)
+    latency_samples: deque[float] = field(
+        default_factory=lambda: deque(maxlen=100), repr=False
+    )
 
     @property
     def failure_rate(self) -> float:
@@ -50,7 +55,9 @@ class VendorHealth:
     def record(self, status: str, elapsed: float, error: str = "") -> None:
         status = status if status in HEALTH_STATUSES else "exception"
         self.calls += 1
-        self.total_seconds += max(float(elapsed), 0.0)
+        safe_elapsed = max(float(elapsed), 0.0)
+        self.total_seconds += safe_elapsed
+        self.latency_samples.append(safe_elapsed)
         self.last_status = status
         self.status_counts[status] = self.status_counts.get(status, 0) + 1
         if status != "ok":
@@ -58,12 +65,20 @@ class VendorHealth:
             self.last_error = redact_error(error or status)
 
     def to_dict(self) -> Dict[str, Any]:
+        ordered_samples = sorted(self.latency_samples)
+        p95 = (
+            ordered_samples[max(ceil(len(ordered_samples) * 0.95) - 1, 0)]
+            if ordered_samples
+            else 0.0
+        )
         return {
             "name": self.name,
             "calls": self.calls,
             "failures": self.failures,
             "failure_rate": round(self.failure_rate, 3),
             "avg_seconds": round(self.avg_seconds, 3),
+            "p95_seconds": round(p95, 3),
+            "latency_sample_count": len(ordered_samples),
             "total_seconds": round(self.total_seconds, 2),
             "last_status": self.last_status,
             "status_counts": dict(sorted(self.status_counts.items())),
