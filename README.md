@@ -7,7 +7,7 @@
 # TradingAgents-CN — 面向 A 股的多智能体 LLM 交易框架
 
 > **版本：** v0.2.3 · **定位：** 基于开源 [TradingAgents](https://github.com/TauricResearch/TradingAgents)（~99k★）的 A 股深度定制 + 面向二开的架构治理
-> **测试护栏：** 458 个离线测试全绿（无网络、无 LLM）· **文档：** [架构](docs/architecture.md) · [面试导航](docs/interview-notes.md)
+> **测试护栏：** 682 个离线测试全绿（无网络、无 LLM）· **文档：** [架构](docs/architecture.md) · [面试导航](docs/interview-notes.md) · [封箱验收](docx/开发文件/封箱总结-项目完成情况与面试验收.md)
 
 TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易框架**：先用 Screener 从数千只股票中筛选候选，再用 LangGraph 编排的「分析师 → 多空辩论 → 交易员 → 风控辩论」多智能体流程对候选做深度分析，输出 BUY / HOLD / SELL 决策。
 
@@ -24,7 +24,7 @@ TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易
 | **回测引擎** | 自研信号驱动回测，复用系统真实选股逻辑（TechnicalStrategy），CSI300 之 80 只池 · 月度再平衡 top5 → **总收益 82.86% / 夏普 2.17 / 超额 +56.57%**（12 个月） | 单段窗口、未计交易成本、仅技术因子可回溯；窗口参数可调整，交易成本显式化仍属下一阶段（见 `reports/backtest/`） |
 | **参数敏感性** | 动量权重 −22% → 收益腰斩（30.9%），趋势对齐权重正向敏感——"感觉合理"的参数有了**实测依据** | 小池 mini 回测，见 `reports/sensitivity.md` |
 | **未来函数审计** | 回测取数显式截止信号日（`end_date = trade_date`），杜绝 look-ahead 泄漏 | 已在技术因子上核实 |
-| **测试护栏** | **458 个离线测试**：merger golden/parity、回测净值数学、供应商健康、接口路由、AST 依赖无环、图拓扑分解 | 以"冻结行为"为主，业务正确性由 [评估集](docs/interview-notes.md) 体系补充 |
+| **测试护栏** | **682 个离线测试**：merger golden/parity、回测净值数学、供应商健康、接口路由、AST 依赖无环、图拓扑分解、证据门禁与真实运行回归 | 以"冻结行为"和工程契约为主；不等价于真实模型正确率 |
 | **数据可靠性** | 逐供应商健康监控（失败率/耗时/最近错误）+ 反爬重试（连接类指数退避、**HTTP 429/403 绝不重试**）+ 熔断降级 + 假成功可见化 | 免费数据源本身有接口漂移风险，已加探测告警 |
 | **工程重构** | 六大千行文件拆解（merger 1050 / reflection 1302 / memory 1124 / data_access 1905 / akshare_interface 1619 / agent_utils 944）→ 单向依赖分层 | 公开 API 零改动，等价性由 golden + parity 测试证明 |
 
@@ -45,7 +45,7 @@ TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易
 | 回测闭环 | 信号驱动回测引擎 + 市场分析报告（绩效、资金曲线、csv） | `python -m tradingagents.backtest` / `reports/backtest/` |
 | 参数敏感性 | 二参数十扰动 mini 回测表，量化权重敏感度 | `python -m tradingagents.backtest --sensitivity` / `reports/sensitivity.md` |
 | 多智能体消融 | 分析师数 × 辩论深度的对照框架，量化决策一致性与成本 | `python -m tradingagents.ablation` |
-| 正确性评测集 | 已知结局案例 → 混淆矩阵 + 方向准确率；决策归一化、评测元数据与 `real_model_run` 边界已建立；**本轮未实跑** | `python -m tradingagents.eval` |
+| 正确性评测集 | 已知结局案例 → 混淆矩阵 + 方向准确率；决策归一化、评测元数据与 `real_model_run` 边界已建立；真实模型评测仍未形成统计结论 | `python -m tradingagents.eval` |
 | 数据可靠性 | 供应商健康监控 + 反爬重试 + 熔断 + 假成功可见化 | `tradingagents/screener/vendors/_guard.py` 等 |
 | Point-in-time 审计 | 技术指标路径已增加历史截止日防御，并完成工具族审计矩阵；**没有宣称所有供应商都通过历史披露时点验证** | [审计表](docs/point-in-time-audit.md) |
 | 工具契约 | Tool wrapper → 路由 → provider 的参数转发、时间边界与失败语义有离线契约测试，避免日期参数丢失/错位 | `tests/test_tool_contracts.py` |
@@ -59,6 +59,7 @@ TradingAgents 是专为 **A 股市场**设计的 **多智能体 LLM 金融交易
 |---|---|
 | [架构说明](docs/architecture.md) | 分层图、数据流、证据标签体系（架构岗位深读） |
 | [面试导航](docs/interview-notes.md) | 60 秒介绍 + 技术 FAQ + 诚实应答（AI 工程岗备考） |
+| [演示手册](docs/demo-runbook.md) | Analyzer / Screener 最小复现路径与证据检查 |
 | `docx/屎山清理/屎山报告-1..5` | 诊断与七轮+重构施工记录（历史依据） |
 | `docx/开发文件/治理报告-6` | 残余不足与下一阶段治理方案 |
 | `docx/开发文件/交接报告` | 给下一个 Agent/助手的工作交接（当前进度） |
@@ -85,8 +86,7 @@ pip install .
 pip install "questionary>=2.1.0"
 
 # 4. 配置 API Key（至少一个）
-export DEEPSEEK_API_KEY=...   # DeepSeek（推荐，成本低）
-export AGNES_API_KEY=...      # Agnes AI（Agnes 2.5 Flash，官方文档显示当前价格为 $0/1M tokens）
+export AGNES_API_KEY=...      # Agnes AI（本项目真实验收使用 Agnes 2.5 Flash）
 export OPENAI_API_KEY=...     # OpenAI（GPT 系列）
 export GOOGLE_API_KEY=...     # Google（Gemini）
 # ... 见下方"LLM 支持总览"
@@ -95,7 +95,7 @@ export GOOGLE_API_KEY=...     # Google（Gemini）
 ### 运行测试（离线护栏，无需任何 Key）
 
 ```bash
-venv/Scripts/python.exe -m pytest tests/ -q    # 预期：458 passed（全离线）
+venv/Scripts/python.exe -m pytest tests/ -q    # 预期：682 passed（全离线）
 ```
 
 ### 跑一次回测（免费数据，无需 LLM Key）
@@ -199,9 +199,9 @@ TradingAgents-CN-improving/
 │   ├── harness/                  # 可观测性（skills / cost_tracker / usage）
 │   ├── llm_clients/              # LLM 工厂（catalog 祛魅 / cost 估算 / cache）
 │   └── ui/                       # 终端 UI（live_dashboard / summary / theme）
-├── docs/                         # 架构说明 + 面试导航（证据标签体系）
+├── docs/                         # 架构说明 + 面试导航 + 演示手册（证据标签体系）
 ├── docx/                         # 治理报告系列（屎山清理 / 开发文件）
-├── tests/                        # 458 个离线测试护栏
+├── tests/                        # 682 个离线测试护栏
 └── pyproject.toml                # 元数据 + 依赖
 ```
 
@@ -219,7 +219,7 @@ TradingAgents-CN-improving/
 | 敏感性 | `python -m tradingagents.backtest --sensitivity` | 参数敏感性扫描 |
 | 消融（需 LLM Key） | `python -m tradingagents.ablation` | 多智能体消融对比 |
 | 评测（需 LLM Key） | `python -m tradingagents.eval` | 决策正确性评测集 |
-| 测试 | `venv/Scripts/python.exe -m pytest tests/ -q` | 458 离线用例 |
+| 测试 | `venv/Scripts/python.exe -m pytest tests/ -q` | 682 离线用例 |
 | 版本 | `python -m tradingagents --version` | 显示版本 |
 
 ---

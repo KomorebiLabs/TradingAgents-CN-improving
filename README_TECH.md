@@ -239,9 +239,9 @@ Agent Tools → Tool Router → MarketDataPort → dataflows / vendor adapters
 | 项 | 状态 |
 |---|---|
 | 回测 82.86% | 单段（2025-07→2026-06）、未计交易成本、仅技术因子、存续偏差——方法论演示，非预测保证；引擎支持多窗口/成本参数复现 |
-| 端到端 LLM 链路 | **未用真实 Key 在本轮运行**（框架就绪，工具 cut-off 的 point-in-time 对技术因子已核，其余待验证） |
+| 端到端 LLM 链路 | **已用 Agnes 2.5 Flash 完成一次真实 Analyzer headless 运行，并完成一次 DeepAnalyzer 合同夹具验收**；真实正确率、HITL 暂停/恢复和长期稳定性仍待验证 |
 | 消融 / 正确性评测 | 框架已落地 + 真实历史标注，真实运行需 LLM Key（见 `ablation/` `eval/` CLI） |
-| 数据源 | 免费数据（腾讯/新浪/THS/东财/百度/CSIndex/BaoStock），2 家当前因 AkShare 接口漂移失效；健康监控已可观测、熔断已降级 |
+| 数据源 | 免费数据（腾讯/新浪/THS/东财/百度/CSIndex/BaoStock）加 CNINFO 公告适配器与可选 Tushare 财务适配器；健康监控、P95、熔断和降级已可观测，Tushare 当前按用户选择关闭 |
 
 ---
 
